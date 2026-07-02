@@ -71,6 +71,15 @@ PELLETS_PER_FRAME = 6       # burst fire rate
 SHOT_SPEED = 5              # charged shot px per frame
 SHOT_MAX_BLOB = 6.5         # cap blast radius in tiles
 
+# Red pad anticipation (Phase A.5 - see DESIGN.md): a beat that makes a big
+# ball closing on a red pad feel dangerous instead of just a bigger number.
+ANTICIPATION_VALUE = 64        # minimum ball value that triggers a beat
+ANTICIPATION_RADIUS = 170      # px from a red pad that arms the beat
+ANTICIPATION_SECONDS = 0.9     # beat duration
+ANTICIPATION_COOLDOWN = 4.0    # min gap between beats, keeps it rare
+ANTICIPATION_SLOWMO = 0.4      # ball speed multiplier during the beat
+ANTICIPATION_ZOOM = 0.10       # extra camera zoom fraction at beat start
+
 
 def _normalize(vx, vy):
     m = math.hypot(vx, vy) or 1.0
@@ -124,7 +133,7 @@ class Ball:
                 bounced = True
 
         if bounced:
-            self.dx, self.dy = _rotate(self.dx, self.dy, random.uniform(-0.15, 0.15))
+            self.dx, self.dy = _rotate(self.dx, self.dy, game.rng.uniform(-0.15, 0.15))
             self.dx, self.dy = _normalize(self.dx, self.dy)
 
         self.trail.append((self.x, self.y))
@@ -156,20 +165,23 @@ class Game:
 
     def __init__(self, seed=None):
         self.seed = seed if seed is not None else random.randrange(1_000_000)
-        random.seed(self.seed)
+        # Private RNG: sim randomness must never share a stream with
+        # presentation randomness (screen shake etc), or rendering a game
+        # would change its outcome and seeds wouldn't reproduce.
+        self.rng = random.Random(self.seed)
 
         self.grid = [[LEFT if c < COLS // 2 else RIGHT for c in range(COLS)]
                      for _ in range(ROWS)]
         # Random opening: each ball starts somewhere in its own half heading
         # in a random direction, so no two games look alike from frame one.
-        a1 = random.uniform(0, math.tau)
-        a2 = random.uniform(0, math.tau)
+        a1 = self.rng.uniform(0, math.tau)
+        a2 = self.rng.uniform(0, math.tau)
         self.balls = [
-            Ball(random.uniform(WIDTH * 0.15, WIDTH * 0.35),
-                 random.uniform(HEIGHT * 0.25, HEIGHT * 0.75),
+            Ball(self.rng.uniform(WIDTH * 0.15, WIDTH * 0.35),
+                 self.rng.uniform(HEIGHT * 0.25, HEIGHT * 0.75),
                  LEFT, math.cos(a1), math.sin(a1)),
-            Ball(random.uniform(WIDTH * 0.65, WIDTH * 0.85),
-                 random.uniform(HEIGHT * 0.25, HEIGHT * 0.75),
+            Ball(self.rng.uniform(WIDTH * 0.65, WIDTH * 0.85),
+                 self.rng.uniform(HEIGHT * 0.25, HEIGHT * 0.75),
                  RIGHT, math.cos(a2), math.sin(a2)),
         ]
         self.powerups = []
@@ -194,12 +206,23 @@ class Game:
         self.collected = {k: 0 for k in PU_TYPES}
         self.events = {"x2": 0, "x4": 0, "burst": 0, "charge": 0}
         self.lead_signs = []
+        self.pct_history = []
         self._lead_timer = 0.0
+        self.lead_changes = 0
+        self.max_swing = 0
+        self.biggest_hit = {"value": 0, "type": None}
+        # Red pad anticipation beat state (Phase A.5)
+        self.anticipation = None       # {"value","team","x","y","t"} or None
+        self.anticipation_cooldown = 0.0
+        # Per-frame cue names for a future audio layer to consume and play
+        # (e.g. "pad_green", "burst", "charge", "explosion", "winner"). Reset
+        # every update() call - poll it once per frame, same as game.finished.
+        self.sound_events = []
 
     def _pad_pos(self):
         margin = 80
-        return (random.uniform(margin, WIDTH - margin),
-                random.uniform(margin + 100, HEIGHT - margin))
+        return (self.rng.uniform(margin, WIDTH - margin),
+                self.rng.uniform(margin + 100, HEIGHT - margin))
 
     # -- scoring ------------------------------------------------------------
 
@@ -212,18 +235,26 @@ class Game:
         self.flash[(i, j)] = 1.0
         cx, cy = i * TILE + TILE / 2, j * TILE + TILE / 2
         for _ in range(2):
-            a = random.uniform(0, math.tau)
-            sp = random.uniform(30, 90)
+            a = self.rng.uniform(0, math.tau)
+            sp = self.rng.uniform(30, 90)
             self.particles.append([cx, cy, math.cos(a) * sp, math.sin(a) * sp,
-                                   random.uniform(0.2, 0.45), TILE_COLOR[team],
-                                   random.uniform(2, 4)])
+                                   self.rng.uniform(0.2, 0.45), TILE_COLOR[team],
+                                   self.rng.uniform(2, 4)])
 
     # -- update -------------------------------------------------------------
 
     def update(self, dt):
+        self.sound_events = []
         self._update_particles(dt)
         if self.finished:
             return
+
+        # Anticipation beat runs on real time, independent of match pacing.
+        self.anticipation_cooldown = max(0.0, self.anticipation_cooldown - dt)
+        if self.anticipation:
+            self.anticipation["t"] -= dt
+            if self.anticipation["t"] <= 0:
+                self.anticipation = None
 
         self.elapsed += dt
         left, right = self.count_tiles()
@@ -238,6 +269,7 @@ class Game:
         mercy = min(1.0, max(0.0, (MATCH_SECONDS - self.elapsed) / 10.0))
         n_balls = {t: max(1, sum(1 for b in self.balls if b.team == t))
                    for t in (LEFT, RIGHT)}
+        slowmo = ANTICIPATION_SLOWMO if self.anticipation else 1.0
         speed = {}
         for team, owned in ((LEFT, left), (RIGHT, right)):
             share = owned / total
@@ -247,12 +279,13 @@ class Game:
             enemy = RIGHT if team == LEFT else LEFT
             equalizer = min(1.5, max(0.8, (n_balls[enemy] / n_balls[team]) ** 0.5))
             boost = BOOST_MULT if self.boost_t[team] > 0 else 1.0
-            speed[team] = BASE_SPEED * esc * rubber * equalizer * boost
+            speed[team] = BASE_SPEED * esc * rubber * equalizer * boost * slowmo
 
         for ball in self.balls:
             if self.freeze_t[ball.team] <= 0:
                 ball.step(self, speed[ball.team])
 
+        self._check_anticipation()
         self._update_pads(dt)
         self._update_bursts()
         self._update_pellets()
@@ -268,17 +301,62 @@ class Game:
             if self.flash[key] <= 0:
                 del self.flash[key]
 
-        # Track the lead over time (drama metric: sign changes = lead changes)
+        left, right = self.count_tiles()
+
+        # Track the lead over time (drama metric: sign changes = lead
+        # changes, biggest peak-to-trough run = max swing).
         self._lead_timer += dt
         if self._lead_timer >= 0.5:
             self._lead_timer = 0.0
+            self.pct_history.append(round(100 * left / total))
             self.lead_signs.append(0 if left == right else (1 if left > right else -1))
 
-        left, right = self.count_tiles()
         if self.elapsed >= MATCH_SECONDS or left == 0 or right == 0:
             self.finished = True
             self.winner = LEFT if left > right else RIGHT if right > left else None
+            self._compute_drama_stats()
+            self.sound_events.append("winner")
             self._spawn_confetti()
+
+    def _check_anticipation(self):
+        """Arm a slow-mo/zoom beat when a big ball closes on a red pad."""
+        if self.anticipation or self.anticipation_cooldown > 0:
+            return
+        for ball in self.balls:
+            if ball.value < ANTICIPATION_VALUE:
+                continue
+            for pad in self.pads:
+                if pad.kind != "release":
+                    continue
+                if math.hypot(ball.x - pad.x, ball.y - pad.y) <= ANTICIPATION_RADIUS:
+                    self.anticipation = {
+                        "value": ball.value, "team": ball.team,
+                        "x": pad.x, "y": pad.y, "t": ANTICIPATION_SECONDS,
+                    }
+                    self.anticipation_cooldown = ANTICIPATION_COOLDOWN
+                    self.sound_events.append("anticipation")
+                    return
+
+    def _compute_drama_stats(self):
+        """Lead changes + biggest single momentum swing, for the winner
+        screen and the render.py metadata sidecar."""
+        signs = [s for s in self.lead_signs if s != 0]
+        self.lead_changes = sum(1 for a, b in zip(signs, signs[1:]) if a != b)
+
+        self.max_swing = 0
+        if self.pct_history:
+            run_start = prev = self.pct_history[0]
+            direction = 0
+            for pct in self.pct_history[1:]:
+                step = pct - prev
+                if step != 0:
+                    step_dir = 1 if step > 0 else -1
+                    if direction and step_dir != direction:
+                        self.max_swing = max(self.max_swing, abs(prev - run_start))
+                        run_start = prev
+                    direction = step_dir
+                prev = pct
+            self.max_swing = max(self.max_swing, abs(prev - run_start))
 
     # -- multiply or release --------------------------------------------------
 
@@ -296,6 +374,7 @@ class Game:
                     ball.value = min(VALUE_CAP, ball.value * pad.kind)
                     self.events[f"x{pad.kind}"] += 1
                     self._burst(pad.x, pad.y, GREEN, n=14, speed=220)
+                    self.sound_events.append("pad_green")
                 pad.x, pad.y = self._pad_pos()  # relocate after any trigger
                 pad.age = 0.0
                 break
@@ -305,20 +384,29 @@ class Game:
         ball.value = 1
         team = ball.team
         self._burst(pad.x, pad.y, RED, n=26, speed=320)
-        if random.random() < 0.5:
+        self.sound_events.append("pad_red")
+        if value > self.biggest_hit["value"]:
+            self.biggest_hit = {"value": value, "type": None}  # type set below
+        if self.rng.random() < 0.5:
             self.events["burst"] += 1
+            if value >= self.biggest_hit["value"]:
+                self.biggest_hit = {"value": value, "type": "burst"}
             self.burst_queue.append(
                 {"x": pad.x, "y": pad.y, "team": team, "remaining": value})
+            self.sound_events.append("burst")
         else:
             self.events["charge"] += 1
+            if value >= self.biggest_hit["value"]:
+                self.biggest_hit = {"value": value, "type": "charge"}
             target = self._random_enemy_tile(team)
             a = (math.atan2(target[1] - pad.y, target[0] - pad.x)
-                 if target else random.uniform(0, math.tau))
+                 if target else self.rng.uniform(0, math.tau))
             self.shots.append({
                 "x": pad.x, "y": pad.y,
                 "dx": math.cos(a), "dy": math.sin(a),
                 "team": team, "power": value,
             })
+            self.sound_events.append("charge")
 
     def _random_enemy_tile(self, team):
         enemy = RIGHT if team == LEFT else LEFT
@@ -326,7 +414,7 @@ class Game:
                    if self.grid[j][i] == enemy]
         if not options:
             return None
-        i, j = random.choice(options)
+        i, j = self.rng.choice(options)
         return (i * TILE + TILE / 2, j * TILE + TILE / 2)
 
     def _update_bursts(self):
@@ -334,7 +422,7 @@ class Game:
             n = min(PELLETS_PER_FRAME, q["remaining"])
             q["remaining"] -= n
             for _ in range(n):
-                a = random.uniform(0, math.tau)
+                a = self.rng.uniform(0, math.tau)
                 self.pellets.append(
                     [q["x"], q["y"], math.cos(a), math.sin(a), q["team"]])
             if q["remaining"] <= 0:
@@ -383,12 +471,12 @@ class Game:
         if self.next_pu <= 0 and len(self.powerups) < 2:
             margin = 90
             self.powerups.append(Powerup(
-                random.uniform(margin, WIDTH - margin),
-                random.uniform(margin + 80, HEIGHT - margin),
-                random.choices(PU_TYPES, PU_WEIGHTS)[0],
+                self.rng.uniform(margin, WIDTH - margin),
+                self.rng.uniform(margin + 80, HEIGHT - margin),
+                self.rng.choices(PU_TYPES, PU_WEIGHTS)[0],
             ))
             # Rarer than pre-Phase-A: pads are the main drama engine now
-            self.next_pu = random.uniform(8.0, 12.0)
+            self.next_pu = self.rng.uniform(8.0, 12.0)
 
         for pu in self.powerups:
             pu.age += dt
@@ -407,7 +495,7 @@ class Game:
         if pu.kind == "multiply":
             have = sum(1 for b in self.balls if b.team == team)
             for _ in range(min(2, MAX_BALLS_PER_TEAM - have)):
-                a = random.uniform(0, math.tau)
+                a = self.rng.uniform(0, math.tau)
                 self.balls.append(Ball(pu.x, pu.y, team, math.cos(a), math.sin(a)))
         elif pu.kind == "bomb":
             ci, cj = int(pu.x // TILE), int(pu.y // TILE)
@@ -429,11 +517,11 @@ class Game:
 
     def _burst(self, x, y, colour, n, speed):
         for _ in range(n):
-            a = random.uniform(0, math.tau)
-            sp = random.uniform(speed * 0.3, speed)
+            a = self.rng.uniform(0, math.tau)
+            sp = self.rng.uniform(speed * 0.3, speed)
             self.particles.append([x, y, math.cos(a) * sp, math.sin(a) * sp,
-                                   random.uniform(0.3, 0.8), colour,
-                                   random.uniform(3, 6)])
+                                   self.rng.uniform(0.3, 0.8), colour,
+                                   self.rng.uniform(3, 6)])
 
     def _spawn_confetti(self):
         if self._confetti_spawned:
@@ -442,10 +530,10 @@ class Game:
         colours = [TILE_COLOR[LEFT], TILE_COLOR[RIGHT], GOLD, WHITE]
         for _ in range(160):
             self.particles.append([
-                random.uniform(0, WIDTH), random.uniform(-300, 0),
-                random.uniform(-40, 40), random.uniform(120, 320),
-                random.uniform(1.5, 3.5), random.choice(colours),
-                random.uniform(3, 7),
+                self.rng.uniform(0, WIDTH), self.rng.uniform(-300, 0),
+                self.rng.uniform(-40, 40), self.rng.uniform(120, 320),
+                self.rng.uniform(1.5, 3.5), self.rng.choice(colours),
+                self.rng.uniform(3, 7),
             ])
 
     def _update_particles(self, dt):
@@ -511,6 +599,8 @@ def draw_world(surf, game):
         r = int(PAD_RADIUS * pulse)
         px, py = int(pad.x), int(pad.y)
         if pad.kind == "release":
+            if game.anticipation:  # beat: the red pad throbs urgently
+                r = int(r * (1.1 + 0.15 * math.sin(pad.age * 18)))
             pygame.draw.circle(surf, (60, 18, 22), (px, py), r)
             pygame.draw.circle(surf, RED, (px, py), r, 4)
             draw_icon(surf, "bomb", px, py, int(r * 0.6))
@@ -549,16 +639,55 @@ def draw_world(surf, game):
                 t = pygame.Surface((r * 2, r * 2), pygame.SRCALPHA)
                 pygame.draw.circle(t, BALL_COLOR[ball.team] + (int(110 * frac),), (r, r), r)
                 surf.blit(t, (tx - r, ty - r))
-        pygame.draw.circle(surf, BALL_COLOR[ball.team], (int(ball.x), int(ball.y)), BALL_RADIUS)
+        bx, by = int(ball.x), int(ball.y)
+
+        # Danger indicator: high-value balls must LOOK dangerous at a glance.
+        # 16+: soft team glow. 64+: pulsing red ring. 128+: second ring.
+        # 256: third ring in gold. Pulse speeds up with the tier.
+        if ball.value >= 16:
+            glow_r = BALL_RADIUS + 14
+            g = pygame.Surface((glow_r * 2, glow_r * 2), pygame.SRCALPHA)
+            pygame.draw.circle(g, BALL_COLOR[ball.team] + (70,), (glow_r, glow_r), glow_r)
+            surf.blit(g, (bx - glow_r, by - glow_r))
+        if ball.value >= ANTICIPATION_VALUE:
+            tier = 1 + (ball.value >= 128) + (ball.value >= 256)
+            pulse = 0.5 + 0.5 * math.sin(game.elapsed * (5 + 2 * tier))
+            for k in range(tier):
+                colour = GOLD if (k == 2) else RED
+                rr = BALL_RADIUS + 6 + k * 6 + int(pulse * 4)
+                pygame.draw.circle(surf, colour, (bx, by), rr, 2 + (k == 0))
+
+        pygame.draw.circle(surf, BALL_COLOR[ball.team], (bx, by), BALL_RADIUS)
         ring = WHITE
         if game.freeze_t[ball.team] > 0:
             ring = ICE
         elif game.boost_t[ball.team] > 0:
             ring = GOLD
-        pygame.draw.circle(surf, ring, (int(ball.x), int(ball.y)), BALL_RADIUS, 3)
+        pygame.draw.circle(surf, ring, (bx, by), BALL_RADIUS, 3)
         size = 20 if ball.value < 100 else 16
         lbl = _font(size).render(str(ball.value), True, (10, 10, 16))
         surf.blit(lbl, (ball.x - lbl.get_width() / 2, ball.y - lbl.get_height() / 2))
+
+
+def compose_frame(world, canvas, game):
+    """World -> canvas with camera effects (anticipation zoom + screen shake).
+    Shared by the live window and render.py so videos match the preview."""
+    src = world
+    if game.anticipation:
+        a = game.anticipation
+        frac = a["t"] / ANTICIPATION_SECONDS          # 1 -> 0 over the beat
+        z = 1.0 + ANTICIPATION_ZOOM * math.sin(frac * math.pi)
+        cw, ch = int(WIDTH / z), int(HEIGHT / z)
+        cx = min(max(int(a["x"] - cw / 2), 0), WIDTH - cw)
+        cy = min(max(int(a["y"] - ch / 2), 0), HEIGHT - ch)
+        src = pygame.transform.smoothscale(
+            world.subsurface((cx, cy, cw, ch)), (WIDTH, HEIGHT))
+    ox = oy = 0
+    if game.shake_t > 0:
+        mag = game.shake_t * 10
+        ox, oy = random.uniform(-mag, mag), random.uniform(-mag, mag)
+    canvas.fill(BG_COLOR)
+    canvas.blit(src, (ox, oy))
 
 
 def draw_hud(screen, game, font, big_font):
@@ -584,18 +713,48 @@ def draw_hud(screen, game, font, big_font):
     timer = font.render(f"{remaining:0.0f}", True, colour)
     screen.blit(timer, (WIDTH / 2 - timer.get_width() / 2, y0 + bar_h + 8))
 
+    # Anticipation beat: "128 POWER!" flash in the team's colour
+    if game.anticipation:
+        a = game.anticipation
+        frac = a["t"] / ANTICIPATION_SECONDS
+        grow = 1.0 + 0.25 * math.sin(frac * math.pi)
+        lbl = _font(int(56 * grow)).render(
+            f"{a['value']} POWER!", True, TILE_COLOR[a["team"]])
+        outline = _font(int(56 * grow)).render(f"{a['value']} POWER!", True, WHITE)
+        x = WIDTH / 2 - lbl.get_width() / 2
+        y = HEIGHT * 0.18
+        for dx, dy in ((-2, 0), (2, 0), (0, -2), (0, 2)):
+            screen.blit(outline, (x + dx, y + dy))
+        screen.blit(lbl, (x, y))
+
     if game.finished:
+        # Winner screen payoff: not just a banner - the match's stats are
+        # the story (final split, biggest hit, lead changes).
+        bg = pygame.Surface((WIDTH, 340), pygame.SRCALPHA)
+        bg.fill((0, 0, 0, 185))
+        top = HEIGHT / 2 - 170
+        screen.blit(bg, (0, top))
+
         if game.winner is None:
             text, colour = "DRAW", WHITE
         else:
             text = "PINK WINS" if game.winner == LEFT else "CYAN WINS"
             colour = TILE_COLOR[game.winner]
-        banner = big_font.render(text, True, colour)
-        bg = pygame.Surface((WIDTH, 120), pygame.SRCALPHA)
-        bg.fill((0, 0, 0, 170))
-        screen.blit(bg, (0, HEIGHT / 2 - 60))
-        screen.blit(banner, (WIDTH / 2 - banner.get_width() / 2,
-                             HEIGHT / 2 - banner.get_height() / 2))
+        banner = _font(64).render(text, True, colour)
+        screen.blit(banner, (WIDTH / 2 - banner.get_width() / 2, top + 24))
+
+        lp = round(100 * left / total)
+        score = _font(48).render(f"{lp}%  -  {100 - lp}%", True, WHITE)
+        screen.blit(score, (WIDTH / 2 - score.get_width() / 2, top + 116))
+
+        if game.biggest_hit["value"] > 1:
+            kind = "BURST" if game.biggest_hit["type"] == "burst" else "CHARGED"
+            hit = _font(32).render(
+                f"BIGGEST HIT  {game.biggest_hit['value']}  ({kind})", True, GOLD)
+            screen.blit(hit, (WIDTH / 2 - hit.get_width() / 2, top + 196))
+
+        lc = _font(32).render(f"LEAD CHANGES  {game.lead_changes}", True, (210, 210, 220))
+        screen.blit(lc, (WIDTH / 2 - lc.get_width() / 2, top + 248))
 
 
 def main():
@@ -630,12 +789,7 @@ def main():
         game.update(1 / FPS)
 
         draw_world(world, game)
-        ox = oy = 0
-        if game.shake_t > 0:
-            mag = game.shake_t * 10
-            ox, oy = random.uniform(-mag, mag), random.uniform(-mag, mag)
-        canvas.fill(BG_COLOR)
-        canvas.blit(world, (ox, oy))
+        compose_frame(world, canvas, game)
         draw_hud(canvas, game, font, big_font)
         if scale < 1.0:
             pygame.transform.smoothscale(canvas, (win_w, win_h), screen)

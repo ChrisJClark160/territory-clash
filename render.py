@@ -14,8 +14,8 @@ The video runs the full match plus a few seconds of the winner banner and
 confetti so the payoff isn't cut off.
 """
 
+import json
 import os
-import random
 import subprocess
 import sys
 import time
@@ -72,12 +72,7 @@ def render(seed=None, out_path=None):
             outro += 1
 
         sim.draw_world(world, game)
-        ox = oy = 0
-        if game.shake_t > 0:
-            mag = game.shake_t * 10
-            ox, oy = random.uniform(-mag, mag), random.uniform(-mag, mag)
-        canvas.fill(sim.BG_COLOR)
-        canvas.blit(world, (ox, oy))
+        sim.compose_frame(world, canvas, game)
         sim.draw_hud(canvas, game, font, big_font)
 
         proc.stdin.write(pygame.image.tobytes(canvas, "RGB"))
@@ -95,9 +90,30 @@ def render(seed=None, out_path=None):
     winner = ("PINK" if game.winner == sim.LEFT else
               "CYAN" if game.winner == sim.RIGHT else "DRAW")
     size_mb = os.path.getsize(out_path) / 1e6
+
+    # Metadata sidecar: titles/descriptions get generated from what actually
+    # happened in this battle, not a generic template (DESIGN.md Phase A.5).
+    meta = {
+        "seed": game.seed,
+        "winner": winner,
+        "final_score": [round(left * 100 / total), round(right * 100 / total)],
+        "biggest_power": game.biggest_hit["value"],
+        "biggest_event": game.biggest_hit["type"],
+        "lead_changes": game.lead_changes,
+        "max_swing": game.max_swing,
+        "events": game.events,
+        "powerups": game.collected,
+        "duration_s": frame // sim.FPS,
+        "file": os.path.basename(out_path),
+    }
+    meta_path = os.path.splitext(out_path)[0] + ".json"
+    with open(meta_path, "w") as f:
+        json.dump(meta, f, indent=2)
+
     print(f"done: {frame} frames ({frame // sim.FPS}s), {winner} wins "
           f"{round(left * 100 / total)}/{round(right * 100 / total)}, "
           f"{size_mb:.1f} MB, took {time.time() - t0:.0f}s")
+    print(f"meta: {meta_path}")
     return out_path
 
 

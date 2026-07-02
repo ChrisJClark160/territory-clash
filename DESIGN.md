@@ -65,9 +65,47 @@ Keep the 2-team tile arena and Shorts format, add the accumulate/release loop:
 - Why first: it's the genre's proven core loop, works in 60s, and directly
   fixes the "feels predetermined" problem - anticipation makes randomness felt.
 
+### Phase A.5 - YouTube-ready polish test  <- NEXT (before Phase B)
+The numbers already prove the sim is more exciting (bigger swings, more lead
+changes). The open question is whether a cold viewer *feels* that without
+being told. Four teams will make the board busier and change the viewer's
+question from "who wins, pink or cyan?" to "what's happening and who do I
+care about?" - don't add that complexity until the current 1v1 format is
+proven to read clearly on a phone.
+
+Build first, then test (build the payoff moments before judging pacing
+against a version that doesn't have them yet):
+- **Danger indicator**: a ball at 64/128/256 should visibly read as
+  dangerous (glow -> pulsing outline -> warning ring), not just be a bigger
+  number.
+- **Red pad anticipation**: when a high-value ball closes on a red pad, add
+  a beat - slight zoom, brief slow-mo, pad pulse, danger sound, on-screen
+  "128 POWER!" flash. Sparingly, only for the biggest moments.
+- **Winner screen payoff**: don't just stop. Show final territory split,
+  biggest hit (value + burst/charged shot), lead changes.
+- **Metadata output**: `render.py` emits a JSON sidecar per video
+  (winner, final score, biggest_power, biggest_event, lead_changes,
+  max_swing) so titles can be generated from what actually happened in that
+  battle, not a generic template.
+- **Audio**: pad/shot/explosion/winner sound cues, NCS track muxed in.
+
+Then test with **outside eyes, not self-scoring** - you already know which
+ball is "supposed to" feel dangerous, so your own read of hook/clarity/drama
+will be optimistic. Render 10 unlisted Shorts (simple vs-themes: Red vs Blue,
+Fire vs Ice, Cats vs Dogs, Pizza vs Burger, Xbox vs PlayStation, iPhone vs
+Samsung, Minecraft vs Roblox, Marvel vs DC, Arsenal vs Liverpool, KFC vs
+McDonald's) and get a few people who've never seen the sim to watch cold.
+Score each out of 10 on: hook (first 2-3s), readability (numbers legible on
+phone), mid-game drama, big payoff, clear winner, would-watch-to-the-end.
+
+Only move to Phase B once that comes back solid.
+
 ### Phase B - four teams
 Four corners, four colours, elimination when a team hits zero tiles, revival
-via a big charged shot. More story shapes per video.
+via a big charged shot. More story shapes per video. Keep the first version
+simple: 4 teams max, 1 ball per team to start, same x2/x4/red-pad system,
+clear scoreboard, eliminate only when territory hits zero. No alliances,
+no extra mechanics, no new powerups yet.
 
 ### Phase C - long-form flagship
 Landscape 1080p (or square), pixel-level territory (fine grid), shields +

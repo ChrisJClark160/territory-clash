@@ -2,7 +2,7 @@
 
 Living status + task doc. Update at the end of each working session.
 
-Last updated: 2026-07-02
+Last updated: 2026-07-02 (Phase A.5 plan added)
 
 ---
 
@@ -87,14 +87,37 @@ between videos.
 - [x] v2 rebuild as tile-flip arena, pymunk dropped
 - [x] Headless verification of the core mechanic
 
-### Next (in priority order)
+### Next (in priority order) - Phase A.5: YouTube-ready polish test (DESIGN.md)
+- [ ] Sound cues: pads, shots, explosions, winner moment + NCS track mux
+      (sim already emits `game.sound_events` per frame for this)
 - [ ] Eyeball a few full 60s runs on screen; tune anything that feels off
       (pad cadence, blob size, pellet spray, trail length)
-- [ ] NCS music track muxed in at the ffmpeg stage (see DESIGN.md - audio plan)
+- [ ] Render 10 unlisted test Shorts, simple vs-themes: Red vs Blue, Fire vs
+      Ice, Cats vs Dogs, Pizza vs Burger, Xbox vs PlayStation, iPhone vs
+      Samsung, Minecraft vs Roblox, Marvel vs DC, Arsenal vs Liverpool,
+      KFC vs McDonald's
+- [ ] Get outside eyes to score cold (don't self-score - you already know
+      what's "supposed to" be exciting). Score /10 each: hook, readability,
+      mid-game drama, big payoff, clear winner, would-watch-to-the-end
 - [ ] Title/thumbnail template; patch-note style descriptions, "Who will win?"
-- [ ] First batch of videos, test on platform before scaling cadence
-- [ ] Phase B: four teams + elimination/revival (DESIGN.md)
+- [ ] Only once A.5 scores well: Phase B - four teams + elimination/revival
+      (DESIGN.md - keep v1 simple, no alliances/extra mechanics)
 - [ ] Phase C: long-form flagship, pixel territory, shields (DESIGN.md)
+
+### Done - Phase A.5 presentation layer (2026-07-02)
+- [x] Danger indicator: 16+ soft team glow; 64+ pulsing red ring; 128+ second
+      ring; 256 third gold ring, pulse speeds up per tier
+- [x] Red pad anticipation beat: slow-mo + camera zoom toward the pad + pad
+      throb + "128 POWER!" flash (64+ balls only, 4s cooldown keeps it rare)
+- [x] Winner screen payoff: winner, final %, biggest hit (value + type),
+      lead changes
+- [x] JSON metadata sidecar per render (seed, winner, final_score,
+      biggest_power/event, lead_changes, max_swing, events, powerups)
+- [x] **Determinism fix**: sim now uses a private RNG (`game.rng`) so
+      presentation randomness (shake) can't change outcomes. Proven: headless
+      and drawn runs of the same seed match exactly; rendered seed 3 matches
+      headless (256 charge, 5 lead changes). Without this, seeds didn't
+      reproduce - re-render a banger would have produced a different battle.
 
 ### Done - Phase A: Multiply or Release (2026-07-02)
 - [x] Balls carry a visible value (starts 1, cap 256). Green pads (two x2,
