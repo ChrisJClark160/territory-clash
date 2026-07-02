@@ -31,14 +31,19 @@ ROWS = HEIGHT // TILE
 
 LEFT, RIGHT = 0, 1
 
-TILE_COLOR = {
-    LEFT: (255, 45, 140),    # neon pink
-    RIGHT: (45, 220, 255),   # neon cyan
+# Default theme; themes.py has the full vs-theme catalogue. A theme is
+# {"names": (left, right), "colors": {LEFT: rgb, RIGHT: rgb}} - ball colours
+# are derived automatically (lightened tiles) so they pop on enemy territory.
+DEFAULT_THEME = {
+    "names": ("PINK", "CYAN"),
+    "colors": {LEFT: (255, 45, 140), RIGHT: (45, 220, 255)},
 }
-BALL_COLOR = {
-    LEFT: (255, 130, 195),
-    RIGHT: (150, 240, 255),
-}
+
+
+def _lighten(c, f=0.45):
+    return tuple(int(v + (255 - v) * f) for v in c)
+
+
 BG_COLOR = (12, 12, 20)
 GOLD = (255, 210, 70)
 WHITE = (255, 255, 255)
@@ -163,7 +168,11 @@ class Pad:
 class Game:
     """Full simulation state, updatable headless (draw is separate)."""
 
-    def __init__(self, seed=None):
+    def __init__(self, seed=None, theme=None):
+        t = theme or DEFAULT_THEME
+        self.team_names = t["names"]
+        self.tile_color = dict(t["colors"])
+        self.ball_color = {k: _lighten(v) for k, v in self.tile_color.items()}
         self.seed = seed if seed is not None else random.randrange(1_000_000)
         # Private RNG: sim randomness must never share a stream with
         # presentation randomness (screen shake etc), or rendering a game
@@ -238,7 +247,7 @@ class Game:
             a = self.rng.uniform(0, math.tau)
             sp = self.rng.uniform(30, 90)
             self.particles.append([cx, cy, math.cos(a) * sp, math.sin(a) * sp,
-                                   self.rng.uniform(0.2, 0.45), TILE_COLOR[team],
+                                   self.rng.uniform(0.2, 0.45), self.tile_color[team],
                                    self.rng.uniform(2, 4)])
 
     # -- update -------------------------------------------------------------
@@ -461,7 +470,7 @@ class Game:
                             and self.grid[jj][ii] == enemy):
                         self.flip_tile(ii, jj, s["team"])
             self.shake_t = min(1.0, 0.4 + s["power"] / 400)
-            self._burst(s["x"], s["y"], TILE_COLOR[s["team"]], n=36, speed=380)
+            self._burst(s["x"], s["y"], self.tile_color[s["team"]], n=36, speed=380)
             self.sound_events.append("explosion")
             self.shots.remove(s)
 
@@ -509,13 +518,13 @@ class Game:
                     if math.hypot(i - ci, j - cj) <= r and self.grid[j][i] == enemy:
                         self.flip_tile(i, j, team)
             self.shake_t = 1.0
-            self._burst(pu.x, pu.y, TILE_COLOR[team], n=40, speed=420)
+            self._burst(pu.x, pu.y, self.tile_color[team], n=40, speed=420)
         elif pu.kind == "freeze":
             self.freeze_t[enemy] = FREEZE_SECONDS
             self._burst(pu.x, pu.y, ICE, n=24, speed=200)
         elif pu.kind == "speed":
             self.boost_t[team] = BOOST_SECONDS
-            self._burst(pu.x, pu.y, TILE_COLOR[team], n=20, speed=300)
+            self._burst(pu.x, pu.y, self.tile_color[team], n=20, speed=300)
 
     # -- particles ----------------------------------------------------------
 
@@ -531,7 +540,7 @@ class Game:
         if self._confetti_spawned:
             return
         self._confetti_spawned = True
-        colours = [TILE_COLOR[LEFT], TILE_COLOR[RIGHT], GOLD, WHITE]
+        colours = [self.tile_color[LEFT], self.tile_color[RIGHT], GOLD, WHITE]
         for _ in range(160):
             self.particles.append([
                 self.rng.uniform(0, WIDTH), self.rng.uniform(-300, 0),
@@ -591,7 +600,7 @@ def draw_world(surf, game):
 
     for j in range(ROWS):
         for i in range(COLS):
-            colour = TILE_COLOR[game.grid[j][i]]
+            colour = game.tile_color[game.grid[j][i]]
             f = game.flash.get((i, j), 0.0)
             if f > 0:
                 colour = tuple(int(c + (255 - c) * f * 0.7) for c in colour)
@@ -625,12 +634,12 @@ def draw_world(surf, game):
         pygame.draw.circle(surf, p[5], (int(p[0]), int(p[1])), max(1, int(p[6] * min(1, p[4] * 2))))
 
     for p in game.pellets:
-        pygame.draw.circle(surf, BALL_COLOR[p[4]], (int(p[0]), int(p[1])), 5)
+        pygame.draw.circle(surf, game.ball_color[p[4]], (int(p[0]), int(p[1])), 5)
         pygame.draw.circle(surf, WHITE, (int(p[0]), int(p[1])), 5, 1)
 
     for s in game.shots:
         r = BALL_RADIUS + min(18, int(s["power"] ** 0.5))
-        pygame.draw.circle(surf, TILE_COLOR[s["team"]], (int(s["x"]), int(s["y"])), r)
+        pygame.draw.circle(surf, game.tile_color[s["team"]], (int(s["x"]), int(s["y"])), r)
         pygame.draw.circle(surf, WHITE, (int(s["x"]), int(s["y"])), r, 3)
         lbl = _font(22).render(str(s["power"]), True, WHITE)
         surf.blit(lbl, (s["x"] - lbl.get_width() / 2, s["y"] - lbl.get_height() / 2))
@@ -641,7 +650,7 @@ def draw_world(surf, game):
             r = int(BALL_RADIUS * frac * 0.7)
             if r > 0:
                 t = pygame.Surface((r * 2, r * 2), pygame.SRCALPHA)
-                pygame.draw.circle(t, BALL_COLOR[ball.team] + (int(110 * frac),), (r, r), r)
+                pygame.draw.circle(t, game.ball_color[ball.team] + (int(110 * frac),), (r, r), r)
                 surf.blit(t, (tx - r, ty - r))
         bx, by = int(ball.x), int(ball.y)
 
@@ -651,7 +660,7 @@ def draw_world(surf, game):
         if ball.value >= 16:
             glow_r = BALL_RADIUS + 14
             g = pygame.Surface((glow_r * 2, glow_r * 2), pygame.SRCALPHA)
-            pygame.draw.circle(g, BALL_COLOR[ball.team] + (70,), (glow_r, glow_r), glow_r)
+            pygame.draw.circle(g, game.ball_color[ball.team] + (70,), (glow_r, glow_r), glow_r)
             surf.blit(g, (bx - glow_r, by - glow_r))
         if ball.value >= ANTICIPATION_VALUE:
             tier = 1 + (ball.value >= 128) + (ball.value >= 256)
@@ -661,7 +670,7 @@ def draw_world(surf, game):
                 rr = BALL_RADIUS + 6 + k * 6 + int(pulse * 4)
                 pygame.draw.circle(surf, colour, (bx, by), rr, 2 + (k == 0))
 
-        pygame.draw.circle(surf, BALL_COLOR[ball.team], (bx, by), BALL_RADIUS)
+        pygame.draw.circle(surf, game.ball_color[ball.team], (bx, by), BALL_RADIUS)
         ring = WHITE
         if game.freeze_t[ball.team] > 0:
             ring = ICE
@@ -703,8 +712,8 @@ def draw_hud(screen, game, font, big_font):
     bar_h, bar_w = 34, WIDTH - 40
     x0, y0 = 20, 20
     split = int(bar_w * left_frac)
-    pygame.draw.rect(screen, TILE_COLOR[LEFT], (x0, y0, split, bar_h), border_radius=16)
-    pygame.draw.rect(screen, TILE_COLOR[RIGHT], (x0 + split, y0, bar_w - split, bar_h),
+    pygame.draw.rect(screen, game.tile_color[LEFT], (x0, y0, split, bar_h), border_radius=16)
+    pygame.draw.rect(screen, game.tile_color[RIGHT], (x0 + split, y0, bar_w - split, bar_h),
                      border_radius=16)
     pygame.draw.rect(screen, WHITE, (x0 + split - 2, y0, 4, bar_h))
 
@@ -723,7 +732,7 @@ def draw_hud(screen, game, font, big_font):
         frac = a["t"] / ANTICIPATION_SECONDS
         grow = 1.0 + 0.25 * math.sin(frac * math.pi)
         lbl = _font(int(56 * grow)).render(
-            f"{a['value']} POWER!", True, TILE_COLOR[a["team"]])
+            f"{a['value']} POWER!", True, game.tile_color[a["team"]])
         outline = _font(int(56 * grow)).render(f"{a['value']} POWER!", True, WHITE)
         x = WIDTH / 2 - lbl.get_width() / 2
         y = HEIGHT * 0.18
@@ -742,9 +751,13 @@ def draw_hud(screen, game, font, big_font):
         if game.winner is None:
             text, colour = "DRAW", WHITE
         else:
-            text = "PINK WINS" if game.winner == LEFT else "CYAN WINS"
-            colour = TILE_COLOR[game.winner]
-        banner = _font(64).render(text, True, colour)
+            text = f"{game.team_names[game.winner]} WINS"
+            colour = game.tile_color[game.winner]
+        size = 64
+        banner = _font(size).render(text, True, colour)
+        while banner.get_width() > WIDTH - 40 and size > 28:  # long team names
+            size -= 4
+            banner = _font(size).render(text, True, colour)
         screen.blit(banner, (WIDTH / 2 - banner.get_width() / 2, top + 24))
 
         lp = round(100 * left / total)

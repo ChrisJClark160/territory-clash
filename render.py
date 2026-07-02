@@ -6,9 +6,10 @@ imageio-ffmpeg, no system install needed). Output is H.264 / yuv420p with
 faststart - exactly what YouTube wants.
 
 Usage:
-    python render.py                # random battle -> output/battle_<seed>.mp4
-    python render.py 12345          # reproduce a specific seed
-    python render.py 12345 out.mp4  # choose the output path
+    python render.py                          # random battle, default theme
+    python render.py 12345                    # reproduce a specific seed
+    python render.py 12345 out.mp4            # choose the output path
+    python render.py 12345 out.mp4 fire_vs_ice  # themed (see themes.py)
 
 The video runs the full match plus a few seconds of the winner banner and
 confetti so the payoff isn't cut off.
@@ -44,11 +45,11 @@ def _find_music():
     return None
 
 
-def render(seed=None, out_path=None):
+def render(seed=None, out_path=None, theme=None):
     pygame.init()
     pygame.display.set_mode((1, 1))  # dummy driver; needed for convert/fonts
 
-    game = sim.Game(seed)
+    game = sim.Game(seed, theme=theme)
     if out_path is None:
         os.makedirs("output", exist_ok=True)
         out_path = os.path.join("output", f"battle_{game.seed}.mp4")
@@ -129,14 +130,14 @@ def render(seed=None, out_path=None):
 
     left, right = game.count_tiles()
     total = left + right
-    winner = ("PINK" if game.winner == sim.LEFT else
-              "CYAN" if game.winner == sim.RIGHT else "DRAW")
+    winner = (game.team_names[game.winner] if game.winner is not None else "DRAW")
     size_mb = os.path.getsize(out_path) / 1e6
 
     # Metadata sidecar: titles/descriptions get generated from what actually
     # happened in this battle, not a generic template (DESIGN.md Phase A.5).
     meta = {
         "seed": game.seed,
+        "teams": list(game.team_names),
         "winner": winner,
         "final_score": [round(left * 100 / total), round(right * 100 / total)],
         "biggest_power": game.biggest_hit["value"],
@@ -162,4 +163,8 @@ def render(seed=None, out_path=None):
 if __name__ == "__main__":
     seed_arg = int(sys.argv[1]) if len(sys.argv) > 1 else None
     path_arg = sys.argv[2] if len(sys.argv) > 2 else None
-    render(seed_arg, path_arg)
+    theme_arg = None
+    if len(sys.argv) > 3:
+        from themes import THEMES
+        theme_arg = THEMES[sys.argv[3]]
+    render(seed_arg, path_arg, theme_arg)
