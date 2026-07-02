@@ -55,16 +55,26 @@ ESC or window close to quit.
 
 ## Where We Are
 
-**Current: v2 - tile-flip arena core, committed (`78e5e41`).**
+**Current: v3 - engagement update. Powerups, rubber-banding, escalation, juice.**
 
-Bounded 18x32 tile arena, left half pink / right half cyan. One ball per team
-roams and flips enemy tiles on contact, ricocheting off. Scoreboard tracks
-tiles owned. Fading trail, white ring, timer, winner banner. Verified headless:
-tiles conserved, balls stay in bounds.
+On top of the v2 tile-flip arena:
+- **4 powerups**, pictographic icons, gold pulsing pickups: multiply (+2 balls,
+  cap 6/team), bomb (blast-converts tiles in radius, screen shake), freeze
+  (enemy balls stop 2.5s, ice ring), speed (+60% for 4s, gold ring).
+- **Rubber-banding**: losing side's balls speed up, leader's slow down; a team
+  with fewer balls gets faster balls (damps the multiply snowball). The leader
+  penalty fades over the final 10s ("no mercy") so endings break open.
+- **Escalation**: pace ramps up to +50% by the end - finale is the wildest part.
+- **Juice**: tile-flip flash + sparks, pickup bursts, screen shake, confetti on
+  the winner banner, timer goes gold in the last 10s.
+- **Seeded**: `python main.py 12345` reproduces a battle; seed printed each run.
+- 60s matches.
 
-**Known issue:** with one ball per side at constant speed the score barely moves
-(~48/52 over 90s). Correct skeleton, but too flat to be engaging yet. Tuning +
-powerups are what make it a watchable video.
+Verified headless across 5 seeds: tiles conserved, balls in bounds, and the
+drama metrics show a healthy mix of narratives - comeback nailbiters (4 lead
+changes, 51/48 finishes) and dominant wins where the loser still never drops
+below ~39%. Mixed story shapes across videos is deliberate: it is the novelty
+between videos.
 
 ---
 
@@ -78,16 +88,19 @@ powerups are what make it a watchable video.
 - [x] Headless verification of the core mechanic
 
 ### Next (in priority order)
-- [ ] **Tune for drama** - 2-3 balls per side, higher speed, so the board churns
-- [ ] **Multiply powerup** - pickups spawn on the board; a ball hitting one
-      spawns +2 balls for its team. Core engagement mechanic, highest priority.
-- [ ] **Visual juice** - flash on tile flip, pulse/screen-shake on powerup
-- [ ] More powerups - Freeze (pause enemy balls), Steal (convert a chunk),
-      Big Ball, Speed, Shield. Keep to 4-6 total for v1.
 - [ ] **Render pipeline** - headless render frames -> ffmpeg -> MP4, seeded
-      so every render is a unique battle
+      so every render is a unique battle. This unlocks actual content.
+- [ ] Eyeball a few full 60s runs on screen; tune anything that feels off
+      (powerup cadence, bomb size, trail length)
+- [ ] Sound design for the rendered video (flips, pickups, bomb, win sting) -
+      added at the ffmpeg stage, sim stays silent
 - [ ] Title/thumbnail template, outro CTA ("who won? comment below")
 - [ ] First batch of videos, test on platform before scaling cadence
+
+### Done in v3 (2026-07-02)
+- [x] Tune for drama - rubber-banding + ball-count equalizer + escalation
+- [x] Multiply powerup (+ bomb, freeze, speed)
+- [x] Visual juice - flip flash, sparks, bursts, shake, confetti, gold timer
 
 ### Later / ideas
 - Themed skins (space, medieval, sports colours)
