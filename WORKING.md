@@ -2,7 +2,10 @@
 
 Living status + task doc. Update at the end of each working session.
 
-Last updated: 2026-07-02 (Phase A.5 plan added)
+Last updated: 2026-07-02 (Phase A.5 build complete)
+
+**Verdict (Chris, 2026-07-02): current format approved for YouTube Shorts,
+and worth extending to longer videos (Phase C interest confirmed).**
 
 ---
 
