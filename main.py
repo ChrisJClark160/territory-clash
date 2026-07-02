@@ -416,12 +416,19 @@ def draw_hud(screen, game, font, big_font):
 def main():
     seed = int(sys.argv[1]) if len(sys.argv) > 1 else None
     pygame.init()
-    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+
+    # Sim always runs at full 720x1280 (video output resolution); the window
+    # is scaled down to fit whatever screen it's on.
+    info = pygame.display.Info()
+    scale = min(1.0, (info.current_h * 0.92) / HEIGHT, (info.current_w * 0.92) / WIDTH)
+    win_w, win_h = int(WIDTH * scale), int(HEIGHT * scale)
+    screen = pygame.display.set_mode((win_w, win_h))
     pygame.display.set_caption("Territory Clash - v3")
     clock = pygame.time.Clock()
     font = pygame.font.SysFont("arial", 26, bold=True)
     big_font = pygame.font.SysFont("arial", 44, bold=True)
     world = pygame.Surface((WIDTH, HEIGHT))
+    canvas = pygame.Surface((WIDTH, HEIGHT))
 
     game = Game(seed)
     print(f"seed: {game.seed}")
@@ -442,9 +449,13 @@ def main():
         if game.shake_t > 0:
             mag = game.shake_t * 10
             ox, oy = random.uniform(-mag, mag), random.uniform(-mag, mag)
-        screen.fill(BG_COLOR)
-        screen.blit(world, (ox, oy))
-        draw_hud(screen, game, font, big_font)
+        canvas.fill(BG_COLOR)
+        canvas.blit(world, (ox, oy))
+        draw_hud(canvas, game, font, big_font)
+        if scale < 1.0:
+            pygame.transform.smoothscale(canvas, (win_w, win_h), screen)
+        else:
+            screen.blit(canvas, (0, 0))
         pygame.display.flip()
 
     pygame.quit()
