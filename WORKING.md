@@ -88,8 +88,6 @@ between videos.
 - [x] Headless verification of the core mechanic
 
 ### Next (in priority order) - Phase A.5: YouTube-ready polish test (DESIGN.md)
-- [ ] Sound cues: pads, shots, explosions, winner moment + NCS track mux
-      (sim already emits `game.sound_events` per frame for this)
 - [ ] Eyeball a few full 60s runs on screen; tune anything that feels off
       (pad cadence, blob size, pellet spray, trail length)
 - [ ] Render 10 unlisted test Shorts, simple vs-themes: Red vs Blue, Fire vs
@@ -103,6 +101,15 @@ between videos.
 - [ ] Only once A.5 scores well: Phase B - four teams + elimination/revival
       (DESIGN.md - keep v1 simple, no alliances/extra mechanics)
 - [ ] Phase C: long-form flagship, pixel territory, shields (DESIGN.md)
+
+### Done - Phase A.5 audio (2026-07-02)
+- [x] `audio.py`: all 9 SFX cues synthesized procedurally (pure stdlib) into
+      `assets/sfx/` on first use - green/red pads, burst, charge, explosion,
+      anticipation riser, winner arpeggio, powerup, freeze
+- [x] Live playback in the window via pygame.mixer
+- [x] `render.py` mixes timestamped cues into an SFX track and muxes it into
+      the MP4 (AAC). Drop an NCS file in `music/` and it loops under the SFX
+      at 30% volume automatically (see `music/README.md`)
 
 ### Done - Phase A.5 presentation layer (2026-07-02)
 - [x] Danger indicator: 16+ soft team glow; 64+ pulsing red ring; 128+ second

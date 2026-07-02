@@ -462,6 +462,7 @@ class Game:
                         self.flip_tile(ii, jj, s["team"])
             self.shake_t = min(1.0, 0.4 + s["power"] / 400)
             self._burst(s["x"], s["y"], TILE_COLOR[s["team"]], n=36, speed=380)
+            self.sound_events.append("explosion")
             self.shots.remove(s)
 
     # -- powerups -------------------------------------------------------------
@@ -490,6 +491,9 @@ class Game:
     def _apply_powerup(self, pu, team):
         self.collected[pu.kind] += 1
         self._burst(pu.x, pu.y, GOLD, n=24, speed=260)
+        self.sound_events.append(
+            "explosion" if pu.kind == "bomb"
+            else "freeze" if pu.kind == "freeze" else "powerup")
         enemy = RIGHT if team == LEFT else LEFT
 
         if pu.kind == "multiply":
@@ -777,6 +781,9 @@ def main():
     game = Game(seed)
     print(f"seed: {game.seed}")
 
+    import audio
+    sounds = audio.load_sounds()
+
     running = True
     while running:
         clock.tick(FPS)
@@ -787,6 +794,9 @@ def main():
                 running = False
 
         game.update(1 / FPS)
+        for cue in game.sound_events:
+            if cue in sounds:
+                sounds[cue].play()
 
         draw_world(world, game)
         compose_frame(world, canvas, game)

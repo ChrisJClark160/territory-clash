@@ -4,3 +4,6 @@ __pycache__/
 venv/
 output/
 *.mp4
+assets/sfx/
+music/*
+!music/README.md

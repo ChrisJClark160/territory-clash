@@ -26,9 +26,22 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 import imageio_ffmpeg
 import pygame
 
+import audio
 import main as sim
 
 OUTRO_SECONDS = 4  # winner banner + confetti after the match ends
+MUSIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "music")
+MUSIC_VOLUME = 0.30  # music bed sits under the SFX
+
+
+def _find_music():
+    """First audio file in music/ (drop an NCS mp3 there), else None."""
+    if not os.path.isdir(MUSIC_DIR):
+        return None
+    for f in sorted(os.listdir(MUSIC_DIR)):
+        if f.lower().endswith((".mp3", ".wav", ".ogg", ".m4a", ".flac")):
+            return os.path.join(MUSIC_DIR, f)
+    return None
 
 
 def render(seed=None, out_path=None):
@@ -46,6 +59,7 @@ def render(seed=None, out_path=None):
     canvas = pygame.Surface((sim.WIDTH, sim.HEIGHT))
 
     ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+    video_tmp = out_path + ".video.mp4"
     cmd = [
         ffmpeg, "-y",
         "-f", "rawvideo", "-pix_fmt", "rgb24",
@@ -53,7 +67,7 @@ def render(seed=None, out_path=None):
         "-i", "-",
         "-c:v", "libx264", "-preset", "medium", "-crf", "18",
         "-pix_fmt", "yuv420p", "-movflags", "+faststart",
-        out_path,
+        video_tmp,
     ]
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -62,12 +76,15 @@ def render(seed=None, out_path=None):
     outro_frames = sim.FPS * OUTRO_SECONDS
     frame = 0
     outro = 0
+    audio_events = []  # (timestamp_seconds, cue) for the offline SFX track
     t0 = time.time()
     print(f"seed: {game.seed}")
     print(f"rendering -> {out_path}")
 
     while outro < outro_frames and frame < max_frames:
         game.update(1 / sim.FPS)
+        for cue in game.sound_events:
+            audio_events.append((frame / sim.FPS, cue))
         if game.finished:
             outro += 1
 
@@ -84,6 +101,31 @@ def render(seed=None, out_path=None):
     proc.stdin.close()
     proc.wait()
     pygame.quit()
+
+    # Build the SFX track and mux audio (+ optional music bed) into the video
+    duration = frame / sim.FPS
+    sfx_wav = out_path + ".sfx.wav"
+    audio.build_track(audio_events, duration, sfx_wav)
+    music = _find_music()
+    if music:
+        mux = [ffmpeg, "-y", "-i", video_tmp, "-i", sfx_wav,
+               "-stream_loop", "-1", "-i", music,
+               "-filter_complex",
+               f"[2:a]volume={MUSIC_VOLUME}[m];"
+               f"[1:a][m]amix=inputs=2:duration=first[a]",
+               "-map", "0:v", "-map", "[a]",
+               "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+               "-shortest", "-movflags", "+faststart", out_path]
+        print(f"music bed: {os.path.basename(music)}")
+    else:
+        mux = [ffmpeg, "-y", "-i", video_tmp, "-i", sfx_wav,
+               "-map", "0:v", "-map", "1:a",
+               "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+               "-shortest", "-movflags", "+faststart", out_path]
+    subprocess.run(mux, check=True,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    os.remove(video_tmp)
+    os.remove(sfx_wav)
 
     left, right = game.count_tiles()
     total = left + right
