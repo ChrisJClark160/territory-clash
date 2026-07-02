@@ -171,6 +171,7 @@ class Game:
     def __init__(self, seed=None, theme=None):
         t = theme or DEFAULT_THEME
         self.team_names = t["names"]
+        self.team_emoji = t.get("emoji", ("", ""))
         self.tile_color = dict(t["colors"])
         self.ball_color = {k: _lighten(v) for k, v in self.tile_color.items()}
         self.seed = seed if seed is not None else random.randrange(1_000_000)
@@ -571,6 +572,26 @@ def _font(size):
     return _fonts[size]
 
 
+def _emoji(char, size, colour):
+    """Render an emoji as a monochrome pictogram. None if unavailable."""
+    if not char:
+        return None
+    key = ("emoji", char, size, colour)
+    if key not in _fonts:
+        try:
+            font = pygame.font.SysFont("segoeuiemoji", size)
+            _fonts[key] = font.render(char, True, colour)
+        except Exception:
+            _fonts[key] = None
+    return _fonts[key]
+
+
+def _outlined(screen, surf_white, surf_black, x, y):
+    for dx, dy in ((-2, 0), (2, 0), (0, -2), (0, 2)):
+        screen.blit(surf_black, (x + dx, y + dy))
+    screen.blit(surf_white, (x, y))
+
+
 def draw_icon(surf, kind, cx, cy, r):
     if kind == "multiply":
         w = max(3, r // 4)
@@ -677,9 +698,17 @@ def draw_world(surf, game):
         elif game.boost_t[ball.team] > 0:
             ring = GOLD
         pygame.draw.circle(surf, ring, (bx, by), BALL_RADIUS, 3)
-        size = 20 if ball.value < 100 else 16
-        lbl = _font(size).render(str(ball.value), True, (10, 10, 16))
-        surf.blit(lbl, (ball.x - lbl.get_width() / 2, ball.y - lbl.get_height() / 2))
+        # Identity when idle, threat when charged: theme emoji at value 1,
+        # the carried number once the ball is worth something.
+        icon = None
+        if ball.value <= 1:
+            icon = _emoji(game.team_emoji[ball.team], 30, (10, 10, 16))
+        if icon is not None:
+            surf.blit(icon, (bx - icon.get_width() / 2, by - icon.get_height() / 2))
+        else:
+            size = 20 if ball.value < 100 else 16
+            lbl = _font(size).render(str(ball.value), True, (10, 10, 16))
+            surf.blit(lbl, (ball.x - lbl.get_width() / 2, ball.y - lbl.get_height() / 2))
 
 
 def compose_frame(world, canvas, game):
@@ -716,6 +745,16 @@ def draw_hud(screen, game, font, big_font):
     pygame.draw.rect(screen, game.tile_color[RIGHT], (x0 + split, y0, bar_w - split, bar_h),
                      border_radius=16)
     pygame.draw.rect(screen, WHITE, (x0 + split - 2, y0, 4, bar_h))
+
+    # Team names live on the bar for the whole video - the matchup IS the
+    # hook, it can't only appear at the winner screen. Outlined for contrast
+    # on any bar colour.
+    for team, align in ((LEFT, "l"), (RIGHT, "r")):
+        name = game.team_names[team]
+        w_surf = _font(20).render(name, True, WHITE)
+        b_surf = _font(20).render(name, True, (10, 10, 16))
+        nx = x0 + 12 if align == "l" else x0 + bar_w - w_surf.get_width() - 12
+        _outlined(screen, w_surf, b_surf, nx, y0 + bar_h / 2 - w_surf.get_height() / 2)
 
     screen.blit(big_font.render(f"{left_pct}%", True, WHITE), (x0 + 8, y0 + bar_h + 6))
     rbl = big_font.render(f"{100 - left_pct}%", True, WHITE)
