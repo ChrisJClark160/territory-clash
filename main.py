@@ -168,8 +168,12 @@ class Pad:
 class Game:
     """Full simulation state, updatable headless (draw is separate)."""
 
-    def __init__(self, seed=None, theme=None):
+    def __init__(self, seed=None, theme=None, match_seconds=None):
         t = theme or DEFAULT_THEME
+        self.match_seconds = match_seconds or MATCH_SECONDS
+        # Absolute cadences (powerup spawns) scale with match length so a
+        # short match is a compressed battle, not a diluted one.
+        self._pace = self.match_seconds / MATCH_SECONDS
         self.team_names = t["names"]
         self.team_emoji = t.get("emoji", ("", ""))
         self.tile_color = dict(t["colors"])
