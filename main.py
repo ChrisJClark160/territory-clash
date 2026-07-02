@@ -136,9 +136,17 @@ class Game:
 
         self.grid = [[LEFT if c < COLS // 2 else RIGHT for c in range(COLS)]
                      for _ in range(ROWS)]
+        # Random opening: each ball starts somewhere in its own half heading
+        # in a random direction, so no two games look alike from frame one.
+        a1 = random.uniform(0, math.tau)
+        a2 = random.uniform(0, math.tau)
         self.balls = [
-            Ball(WIDTH * 0.25, HEIGHT * 0.5, LEFT, 1, 1),
-            Ball(WIDTH * 0.75, HEIGHT * 0.5, RIGHT, -1, -1),
+            Ball(random.uniform(WIDTH * 0.15, WIDTH * 0.35),
+                 random.uniform(HEIGHT * 0.25, HEIGHT * 0.75),
+                 LEFT, math.cos(a1), math.sin(a1)),
+            Ball(random.uniform(WIDTH * 0.65, WIDTH * 0.85),
+                 random.uniform(HEIGHT * 0.25, HEIGHT * 0.75),
+                 RIGHT, math.cos(a2), math.sin(a2)),
         ]
         self.powerups = []
         self.next_pu = 4.0
