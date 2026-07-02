@@ -48,6 +48,7 @@ def _find_music():
 def render(seed=None, out_path=None, theme=None):
     pygame.init()
     pygame.display.set_mode((1, 1))  # dummy driver; needed for convert/fonts
+    sim._fonts.clear()  # cached fonts die when pygame.quit()s between renders
 
     game = sim.Game(seed, theme=theme)
     if out_path is None:
