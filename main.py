@@ -59,6 +59,18 @@ FREEZE_SECONDS = 2.5
 BOOST_SECONDS = 4.0
 BOOST_MULT = 1.6
 
+# Multiply or Release (Phase A - see DESIGN.md)
+PAD_RADIUS = 30
+N_GREEN_PADS = 3
+N_RED_PADS = 2
+VALUE_CAP = 256
+GREEN = (60, 230, 110)
+RED = (255, 80, 80)
+PELLET_SPEED = 14           # px per frame
+PELLETS_PER_FRAME = 6       # burst fire rate
+SHOT_SPEED = 5              # charged shot px per frame
+SHOT_MAX_BLOB = 6.5         # cap blast radius in tiles
+
 
 def _normalize(vx, vy):
     m = math.hypot(vx, vy) or 1.0
@@ -77,6 +89,7 @@ class Ball:
         self.team = team
         self.dx, self.dy = _normalize(vx, vy)
         self.trail = []
+        self.value = 1  # multiplied by green pads, cashed in at red pads
 
     def step(self, game, speed):
         enemy = RIGHT if self.team == LEFT else LEFT
@@ -127,6 +140,17 @@ class Powerup:
         self.age = 0.0
 
 
+class Pad:
+    """Multiply-or-release trigger. kind: 2 or 4 (green multiplier) or
+    "release" (red - cash the ball's value in as a burst or charged shot)."""
+
+    def __init__(self, x, y, kind):
+        self.x = x
+        self.y = y
+        self.kind = kind
+        self.age = 0.0
+
+
 class Game:
     """Full simulation state, updatable headless (draw is separate)."""
 
@@ -149,7 +173,14 @@ class Game:
                  RIGHT, math.cos(a2), math.sin(a2)),
         ]
         self.powerups = []
-        self.next_pu = 4.0
+        self.next_pu = 6.0
+        # Always two x2 pads and one x4 - the big multiplier is a guaranteed
+        # part of every board, not a coin flip
+        self.pads = ([Pad(*self._pad_pos(), k) for k in (2, 2, 4)]
+                     + [Pad(*self._pad_pos(), "release") for _ in range(N_RED_PADS)])
+        self.pellets = []         # [x, y, dx, dy, team]
+        self.shots = []           # charged shots: dicts
+        self.burst_queue = []     # {"x","y","team","remaining"}
         self.particles = []       # [x, y, vx, vy, life, colour, size]
         self.flash = {}           # (i, j) -> brightness 0..1, decays
         self.freeze_t = {LEFT: 0.0, RIGHT: 0.0}
@@ -161,8 +192,14 @@ class Game:
         self._confetti_spawned = False
         # Stats (used by headless verification and for judging drama)
         self.collected = {k: 0 for k in PU_TYPES}
+        self.events = {"x2": 0, "x4": 0, "burst": 0, "charge": 0}
         self.lead_signs = []
         self._lead_timer = 0.0
+
+    def _pad_pos(self):
+        margin = 80
+        return (random.uniform(margin, WIDTH - margin),
+                random.uniform(margin + 100, HEIGHT - margin))
 
     # -- scoring ------------------------------------------------------------
 
@@ -216,6 +253,10 @@ class Game:
             if self.freeze_t[ball.team] <= 0:
                 ball.step(self, speed[ball.team])
 
+        self._update_pads(dt)
+        self._update_bursts()
+        self._update_pellets()
+        self._update_shots()
         self._update_powerups(dt, esc)
 
         for team in (LEFT, RIGHT):
@@ -239,6 +280,104 @@ class Game:
             self.winner = LEFT if left > right else RIGHT if right > left else None
             self._spawn_confetti()
 
+    # -- multiply or release --------------------------------------------------
+
+    def _update_pads(self, dt):
+        for pad in self.pads:
+            pad.age += dt
+            for ball in self.balls:
+                if math.hypot(ball.x - pad.x, ball.y - pad.y) > BALL_RADIUS + PAD_RADIUS:
+                    continue
+                if pad.kind == "release":
+                    if ball.value <= 1:
+                        continue
+                    self._release(pad, ball)
+                else:
+                    ball.value = min(VALUE_CAP, ball.value * pad.kind)
+                    self.events[f"x{pad.kind}"] += 1
+                    self._burst(pad.x, pad.y, GREEN, n=14, speed=220)
+                pad.x, pad.y = self._pad_pos()  # relocate after any trigger
+                pad.age = 0.0
+                break
+
+    def _release(self, pad, ball):
+        value = ball.value
+        ball.value = 1
+        team = ball.team
+        self._burst(pad.x, pad.y, RED, n=26, speed=320)
+        if random.random() < 0.5:
+            self.events["burst"] += 1
+            self.burst_queue.append(
+                {"x": pad.x, "y": pad.y, "team": team, "remaining": value})
+        else:
+            self.events["charge"] += 1
+            target = self._random_enemy_tile(team)
+            a = (math.atan2(target[1] - pad.y, target[0] - pad.x)
+                 if target else random.uniform(0, math.tau))
+            self.shots.append({
+                "x": pad.x, "y": pad.y,
+                "dx": math.cos(a), "dy": math.sin(a),
+                "team": team, "power": value,
+            })
+
+    def _random_enemy_tile(self, team):
+        enemy = RIGHT if team == LEFT else LEFT
+        options = [(i, j) for j in range(ROWS) for i in range(COLS)
+                   if self.grid[j][i] == enemy]
+        if not options:
+            return None
+        i, j = random.choice(options)
+        return (i * TILE + TILE / 2, j * TILE + TILE / 2)
+
+    def _update_bursts(self):
+        for q in self.burst_queue[:]:
+            n = min(PELLETS_PER_FRAME, q["remaining"])
+            q["remaining"] -= n
+            for _ in range(n):
+                a = random.uniform(0, math.tau)
+                self.pellets.append(
+                    [q["x"], q["y"], math.cos(a), math.sin(a), q["team"]])
+            if q["remaining"] <= 0:
+                self.burst_queue.remove(q)
+
+    def _update_pellets(self):
+        for p in self.pellets[:]:
+            p[0] += p[2] * PELLET_SPEED
+            p[1] += p[3] * PELLET_SPEED
+            if not (0 <= p[0] < WIDTH and 0 <= p[1] < HEIGHT):
+                self.pellets.remove(p)
+                continue
+            i, j = int(p[0] // TILE), int(p[1] // TILE)
+            enemy = RIGHT if p[4] == LEFT else LEFT
+            if 0 <= i < COLS and 0 <= j < ROWS and self.grid[j][i] == enemy:
+                self.flip_tile(i, j, p[4])
+                self.pellets.remove(p)
+
+    def _update_shots(self):
+        for s in self.shots[:]:
+            s["x"] += s["dx"] * SHOT_SPEED
+            s["y"] += s["dy"] * SHOT_SPEED
+            i, j = int(s["x"] // TILE), int(s["y"] // TILE)
+            enemy = RIGHT if s["team"] == LEFT else LEFT
+            hit_wall = not (BALL_RADIUS <= s["x"] <= WIDTH - BALL_RADIUS
+                            and BALL_RADIUS <= s["y"] <= HEIGHT - BALL_RADIUS)
+            hit_enemy = (0 <= i < COLS and 0 <= j < ROWS
+                         and self.grid[j][i] == enemy)
+            if not (hit_wall or hit_enemy):
+                continue
+            r = min(SHOT_MAX_BLOB, max(1.2, math.sqrt(s["power"] / math.pi)))
+            ci, cj = max(0, min(COLS - 1, i)), max(0, min(ROWS - 1, j))
+            for jj in range(max(0, int(cj - r)), min(ROWS, int(cj + r + 1))):
+                for ii in range(max(0, int(ci - r)), min(COLS, int(ci + r + 1))):
+                    if (math.hypot(ii - ci, jj - cj) <= r
+                            and self.grid[jj][ii] == enemy):
+                        self.flip_tile(ii, jj, s["team"])
+            self.shake_t = min(1.0, 0.4 + s["power"] / 400)
+            self._burst(s["x"], s["y"], TILE_COLOR[s["team"]], n=36, speed=380)
+            self.shots.remove(s)
+
+    # -- powerups -------------------------------------------------------------
+
     def _update_powerups(self, dt, esc):
         self.next_pu -= dt * esc
         if self.next_pu <= 0 and len(self.powerups) < 2:
@@ -248,7 +387,8 @@ class Game:
                 random.uniform(margin + 80, HEIGHT - margin),
                 random.choices(PU_TYPES, PU_WEIGHTS)[0],
             ))
-            self.next_pu = random.uniform(5.0, 8.0)
+            # Rarer than pre-Phase-A: pads are the main drama engine now
+            self.next_pu = random.uniform(8.0, 12.0)
 
         for pu in self.powerups:
             pu.age += dt
@@ -321,6 +461,15 @@ class Game:
 
 # -- drawing (kept apart from sim so headless runs never touch it) ----------
 
+_fonts = {}
+
+
+def _font(size):
+    if size not in _fonts:
+        _fonts[size] = pygame.font.SysFont("arial", size, bold=True)
+    return _fonts[size]
+
+
 def draw_icon(surf, kind, cx, cy, r):
     if kind == "multiply":
         w = max(3, r // 4)
@@ -357,6 +506,20 @@ def draw_world(surf, game):
             pygame.draw.rect(surf, colour,
                              (i * TILE + GAP, j * TILE + GAP, TILE - GAP, TILE - GAP))
 
+    for pad in game.pads:
+        pulse = 1.0 + 0.08 * math.sin(pad.age * 4)
+        r = int(PAD_RADIUS * pulse)
+        px, py = int(pad.x), int(pad.y)
+        if pad.kind == "release":
+            pygame.draw.circle(surf, (60, 18, 22), (px, py), r)
+            pygame.draw.circle(surf, RED, (px, py), r, 4)
+            draw_icon(surf, "bomb", px, py, int(r * 0.6))
+        else:
+            pygame.draw.circle(surf, (16, 50, 30), (px, py), r)
+            pygame.draw.circle(surf, GREEN, (px, py), r, 4)
+            lbl = _font(24).render(f"x{pad.kind}", True, WHITE)
+            surf.blit(lbl, (px - lbl.get_width() / 2, py - lbl.get_height() / 2))
+
     for pu in game.powerups:
         pulse = 1.0 + 0.12 * math.sin(pu.age * 5)
         r = int(PU_RADIUS * pulse)
@@ -366,6 +529,17 @@ def draw_world(surf, game):
 
     for p in game.particles:
         pygame.draw.circle(surf, p[5], (int(p[0]), int(p[1])), max(1, int(p[6] * min(1, p[4] * 2))))
+
+    for p in game.pellets:
+        pygame.draw.circle(surf, BALL_COLOR[p[4]], (int(p[0]), int(p[1])), 5)
+        pygame.draw.circle(surf, WHITE, (int(p[0]), int(p[1])), 5, 1)
+
+    for s in game.shots:
+        r = BALL_RADIUS + min(18, int(s["power"] ** 0.5))
+        pygame.draw.circle(surf, TILE_COLOR[s["team"]], (int(s["x"]), int(s["y"])), r)
+        pygame.draw.circle(surf, WHITE, (int(s["x"]), int(s["y"])), r, 3)
+        lbl = _font(22).render(str(s["power"]), True, WHITE)
+        surf.blit(lbl, (s["x"] - lbl.get_width() / 2, s["y"] - lbl.get_height() / 2))
 
     for ball in game.balls:
         for k, (tx, ty) in enumerate(ball.trail):
@@ -382,6 +556,9 @@ def draw_world(surf, game):
         elif game.boost_t[ball.team] > 0:
             ring = GOLD
         pygame.draw.circle(surf, ring, (int(ball.x), int(ball.y)), BALL_RADIUS, 3)
+        size = 20 if ball.value < 100 else 16
+        lbl = _font(size).render(str(ball.value), True, (10, 10, 16))
+        surf.blit(lbl, (ball.x - lbl.get_width() / 2, ball.y - lbl.get_height() / 2))
 
 
 def draw_hud(screen, game, font, big_font):

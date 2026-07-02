@@ -88,16 +88,22 @@ between videos.
 - [x] Headless verification of the core mechanic
 
 ### Next (in priority order)
-- [ ] **Phase A: "Multiply or Release"** - balls carry a visible multiplying
-      number, cashed in at red pads as a burst attack or charged shot.
-      See DESIGN.md. Fixes the "feels predetermined" problem via anticipation.
 - [ ] Eyeball a few full 60s runs on screen; tune anything that feels off
-      (powerup cadence, bomb size, trail length)
+      (pad cadence, blob size, pellet spray, trail length)
 - [ ] NCS music track muxed in at the ffmpeg stage (see DESIGN.md - audio plan)
 - [ ] Title/thumbnail template; patch-note style descriptions, "Who will win?"
 - [ ] First batch of videos, test on platform before scaling cadence
 - [ ] Phase B: four teams + elimination/revival (DESIGN.md)
 - [ ] Phase C: long-form flagship, pixel territory, shields (DESIGN.md)
+
+### Done - Phase A: Multiply or Release (2026-07-02)
+- [x] Balls carry a visible value (starts 1, cap 256). Green pads (two x2,
+      one x4 guaranteed per board) multiply it; red pads cash it in 50/50 as
+      a **burst** (N pellets, each flips one tile) or a **charged shot** (big
+      ball aimed at enemy territory, flips a blob of ~N tiles, screen shake).
+      Pads relocate after every trigger. Old powerups made rarer (8-12s).
+      Verified: swings grew from ~10pts to 20-40pts, up to 7 lead changes,
+      finals ranging 30-71. Invariants hold.
 
 ### Done - render pipeline (2026-07-02)
 - [x] `render.py`: headless sim -> ffmpeg (bundled, no install) -> MP4.
