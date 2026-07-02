@@ -88,14 +88,22 @@ between videos.
 - [x] Headless verification of the core mechanic
 
 ### Next (in priority order)
-- [ ] **Render pipeline** - headless render frames -> ffmpeg -> MP4, seeded
-      so every render is a unique battle. This unlocks actual content.
+- [ ] **Phase A: "Multiply or Release"** - balls carry a visible multiplying
+      number, cashed in at red pads as a burst attack or charged shot.
+      See DESIGN.md. Fixes the "feels predetermined" problem via anticipation.
 - [ ] Eyeball a few full 60s runs on screen; tune anything that feels off
       (powerup cadence, bomb size, trail length)
-- [ ] Sound design for the rendered video (flips, pickups, bomb, win sting) -
-      added at the ffmpeg stage, sim stays silent
-- [ ] Title/thumbnail template, outro CTA ("who won? comment below")
+- [ ] NCS music track muxed in at the ffmpeg stage (see DESIGN.md - audio plan)
+- [ ] Title/thumbnail template; patch-note style descriptions, "Who will win?"
 - [ ] First batch of videos, test on platform before scaling cadence
+- [ ] Phase B: four teams + elimination/revival (DESIGN.md)
+- [ ] Phase C: long-form flagship, pixel territory, shields (DESIGN.md)
+
+### Done - render pipeline (2026-07-02)
+- [x] `render.py`: headless sim -> ffmpeg (bundled, no install) -> MP4.
+      H.264/yuv420p/720x1280/60fps/faststart, 4s winner outro. A 64s battle
+      renders in ~49s. Usage: `python render.py [seed] [out.mp4]`,
+      output lands in `output/`.
 
 ### Done in v3 (2026-07-02)
 - [x] Tune for drama - rubber-banding + ball-count equalizer + escalation
