@@ -90,10 +90,11 @@ between videos.
 ### Next (in priority order) - Phase A.5: YouTube-ready polish test (DESIGN.md)
 - [ ] Eyeball a few full 60s runs on screen; tune anything that feels off
       (pad cadence, blob size, pellet spray, trail length)
-- [ ] Render 10 unlisted test Shorts, simple vs-themes: Red vs Blue, Fire vs
-      Ice, Cats vs Dogs, Pizza vs Burger, Xbox vs PlayStation, iPhone vs
-      Samsung, Minecraft vs Roblox, Marvel vs DC, Arsenal vs Liverpool,
-      KFC vs McDonald's
+- [x] Render 10 test Shorts (2026-07-02): done, `output/batch/`. Standouts:
+      pizza_vs_burger (10 lead changes, 256 charge, 52-48), marvel_vs_dc
+      (7 leads, 256 burst), kfc_vs_mcdonalds (50-50 photo finish). Weakest:
+      arsenal_vs_liverpool (0 leads, biggest hit 16) - a flat battle happens
+      sometimes; re-render weak themes with a fresh seed before uploading.
 - [ ] Get outside eyes to score cold (don't self-score - you already know
       what's "supposed to" be exciting). Score /10 each: hook, readability,
       mid-game drama, big payoff, clear winner, would-watch-to-the-end
