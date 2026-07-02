@@ -7,3 +7,4 @@ output/
 assets/sfx/
 music/*
 !music/README.md
+err.txt
