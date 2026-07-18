@@ -9,10 +9,11 @@ Usage:
     python render.py                          # random battle, default theme
     python render.py 12345                    # reproduce a specific seed
     python render.py 12345 out.mp4            # choose the output path
-    python render.py 12345 out.mp4 fire_vs_ice  # themed (see themes.py)
+    python render.py 12345 out.mp4 fire_vs_ice     # themed (see themes.py)
+    python render.py 12345 out.mp4 fire_vs_ice 40  # 40s battle
 
-The video runs the full match plus a few seconds of the winner banner and
-confetti so the payoff isn't cut off.
+The video opens on a baked-in title card (the matchup IS the hook), runs
+the full match, and ends with a short winner banner + confetti.
 """
 
 import json
@@ -28,9 +29,11 @@ import imageio_ffmpeg
 import pygame
 
 import audio
+import describe
 import main as sim
 
-OUTRO_SECONDS = 4  # winner banner + confetti after the match ends
+OUTRO_SECONDS = 2   # winner banner + confetti; short - retention feeds loops
+TITLE_SECONDS = 1.0  # opening matchup card, fades out over the last 0.3s
 MUSIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "music")
 MUSIC_VOLUME = 0.30  # music bed sits under the SFX
 
@@ -45,12 +48,41 @@ def _find_music():
     return None
 
 
-def render(seed=None, out_path=None, theme=None):
+def _title_card(game):
+    """Full-width matchup card: team A, VS, team B, with emoji. Baked into
+    the first second of the video - the swipe-away decision happens before
+    the bar and percentages mean anything, so the matchup must be instant."""
+    card = pygame.Surface((sim.WIDTH, 420), pygame.SRCALPHA)
+    card.fill((8, 8, 14, 235))
+    pygame.draw.rect(card, sim.GOLD, (0, 0, sim.WIDTH, 420), 3)
+    rows = (
+        (game.team_names[sim.LEFT], game.tile_color[sim.LEFT],
+         game.team_emoji[sim.LEFT], 46, 64),
+        ("VS", sim.GOLD, "", 172, 76),
+        (game.team_names[sim.RIGHT], game.tile_color[sim.RIGHT],
+         game.team_emoji[sim.RIGHT], 292, 64),
+    )
+    for text, colour, emoji, y, size in rows:
+        lbl = sim._font(size).render(text, True, colour)
+        while lbl.get_width() > sim.WIDTH - 200 and size > 30:
+            size -= 4
+            lbl = sim._font(size).render(text, True, colour)
+        icon = sim._emoji(emoji, size, sim.WHITE) if emoji else None
+        w = lbl.get_width() + (icon.get_width() + 18 if icon else 0)
+        x = (sim.WIDTH - w) / 2
+        if icon:
+            card.blit(icon, (x, y + (lbl.get_height() - icon.get_height()) / 2))
+            x += icon.get_width() + 18
+        card.blit(lbl, (x, y))
+    return card
+
+
+def render(seed=None, out_path=None, theme=None, match_seconds=None):
     pygame.init()
     pygame.display.set_mode((1, 1))  # dummy driver; needed for convert/fonts
     sim._fonts.clear()  # cached fonts die when pygame.quit()s between renders
 
-    game = sim.Game(seed, theme=theme)
+    game = sim.Game(seed, theme=theme, match_seconds=match_seconds)
     if out_path is None:
         os.makedirs("output", exist_ok=True)
         out_path = os.path.join("output", f"battle_{game.seed}.mp4")
@@ -74,11 +106,12 @@ def render(seed=None, out_path=None, theme=None):
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    max_frames = sim.FPS * (sim.MATCH_SECONDS + 30)  # hard safety stop
+    max_frames = sim.FPS * (game.match_seconds + 30)  # hard safety stop
     outro_frames = sim.FPS * OUTRO_SECONDS
     frame = 0
     outro = 0
     audio_events = []  # (timestamp_seconds, cue) for the offline SFX track
+    title_card = _title_card(game)
     t0 = time.time()
     print(f"seed: {game.seed}")
     print(f"rendering -> {out_path}")
@@ -93,6 +126,13 @@ def render(seed=None, out_path=None, theme=None):
         sim.draw_world(world, game)
         sim.compose_frame(world, canvas, game)
         sim.draw_hud(canvas, game, font, big_font)
+
+        t = frame / sim.FPS
+        if t < TITLE_SECONDS:
+            fade = 1.0 if t < TITLE_SECONDS - 0.3 else (TITLE_SECONDS - t) / 0.3
+            title_card.set_alpha(int(255 * fade))
+            canvas.blit(title_card,
+                        (0, (sim.HEIGHT - title_card.get_height()) / 2))
 
         proc.stdin.write(pygame.image.tobytes(canvas, "RGB"))
         frame += 1
@@ -143,10 +183,14 @@ def render(seed=None, out_path=None, theme=None):
         "final_score": [round(left * 100 / total), round(right * 100 / total)],
         "biggest_power": game.biggest_hit["value"],
         "biggest_event": game.biggest_hit["type"],
+        "biggest_hit_t": game.biggest_hit["t"],
         "lead_changes": game.lead_changes,
+        "lead_change_times": game.lead_change_times,
         "max_swing": game.max_swing,
+        "match_seconds": game.match_seconds,
         "events": game.events,
         "powerups": game.collected,
+        "timeline": game.event_log,
         "duration_s": frame // sim.FPS,
         "file": os.path.basename(out_path),
     }
@@ -154,10 +198,16 @@ def render(seed=None, out_path=None, theme=None):
     with open(meta_path, "w") as f:
         json.dump(meta, f, indent=2)
 
+    # Upload packaging: title/pinned comment/description generated from what
+    # actually happened in this battle.
+    txt_path = describe.write_for(meta, out_path,
+                                  music=os.path.basename(music) if music else None)
+
     print(f"done: {frame} frames ({frame // sim.FPS}s), {winner} wins "
           f"{round(left * 100 / total)}/{round(right * 100 / total)}, "
           f"{size_mb:.1f} MB, took {time.time() - t0:.0f}s")
     print(f"meta: {meta_path}")
+    print(f"text: {txt_path}")
     return out_path
 
 
@@ -168,4 +218,5 @@ if __name__ == "__main__":
     if len(sys.argv) > 3:
         from themes import THEMES
         theme_arg = THEMES[sys.argv[3]]
-    render(seed_arg, path_arg, theme_arg)
+    seconds_arg = int(sys.argv[4]) if len(sys.argv) > 4 else None
+    render(seed_arg, path_arg, theme_arg, seconds_arg)
