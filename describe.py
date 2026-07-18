@@ -63,7 +63,9 @@ def describe(meta, music=None):
         "New battle every day.",
     ]
     if music:
-        lines += ["", f"Music: {os.path.splitext(music)[0]} (NoCopyrightSounds)"]
+        # Name music files with attribution built in, e.g.
+        # "Raving Energy - Kevin MacLeod (incompetech.com CC BY 4.0).mp3"
+        lines += ["", f"Music: {os.path.splitext(music)[0]}"]
     tags = ["#Shorts", "#battle", "#satisfying", "#simulation",
             f"#{a.lower().replace(' ', '')}", f"#{b.lower().replace(' ', '')}"]
     lines += ["", " ".join(tags)]
