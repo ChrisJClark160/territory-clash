@@ -2,8 +2,13 @@
 
 Living status + task doc. Update at the end of each working session.
 
-Last updated: 2026-07-02 (YouTube launch plan agreed; build started - see
-"YouTube Launch Plan" below. Session ended mid-build for token budget.)
+Last updated: 2026-07-18 (launch-plan build items 1-6 DONE + sim fixes +
+lead-change beat + title card. Remaining: cold open, music track, channel.)
+
+**⚠️ Sim changed 2026-07-18: old seeds produce DIFFERENT battles now** (burst
+cone aim, aftershocks, anticipation direction check changed rng consumption).
+The pre-18-Jul renders in output/batch/ and their sidecar metrics are stale -
+re-render everything via seed_shop.py + batch_render.py.
 
 **Verdict (Chris, 2026-07-02): current format approved for YouTube Shorts,
 and worth extending to longer videos (Phase C interest confirmed).**
@@ -98,17 +103,11 @@ working name Territory Clash / @TerritoryClash, Chris to confirm); judge the
 test on ~30 uploads over 30 days, not week-one views; mirror every MP4 to
 TikTok + Reels unchanged.
 
-**IMPORTANT - batch metadata discrepancy:** the per-theme notes lower in this
-file (pizza best, arsenal worst) do NOT match the JSON sidecars on disk in
-`output/batch/`. Sidecars are ground truth. Actual best current renders:
-arsenal_vs_liverpool (13 lead changes, 50-50 photo finish, 256 charge),
-iphone_vs_samsung (11 leads, 48-52), cats_vs_dogs (7 leads, 256 burst, 56-44),
-xbox_vs_playstation (7 leads, 128 burst). minecraft_vs_roblox (best hook for
-the demo) got a dud battle (1 lead change) - re-render after seed-shopping.
-
-**First slate (6):** minecraft_vs_roblox* + kfc_vs_mcdonalds* (seed-shopped
-re-renders), cats_vs_dogs, iphone_vs_samsung, xbox_vs_playstation,
-arsenal_vs_liverpool (keep current renders).
+**Slate flow (2026-07-18, supersedes the old batch notes):** the 2-Jul
+renders are stale (sim changed). New flow for any slate:
+`seed_shop.py 200 40` then `batch_render.py` - every video comes out
+pre-scored with sidecar + upload text. First test render: cats_vs_dogs
+seed 364825, 10 lead changes, 52-48, five lead changes in the last 8s.
 
 **Strategy levers (why the changes below):** Shorts feed rewards low
 swipe-away in the first 1-3s, high avg % viewed, comments. So: open hot
@@ -118,42 +117,55 @@ swipe-away in the first 1-3s, high avg % viewed, comments. So: open hot
 20-30 uploads: correlate YT retention stats against sidecar drama metrics
 and make seed_shop optimise for what measurably retains.
 
-### Build list (in order; item 1 STARTED, rest not begun)
+### Build list (items 1-6 DONE 2026-07-18)
 
-1. **main.py - match_seconds param + event timestamps.** STARTED: `Game.__init__`
-   now accepts `match_seconds` and sets `self._pace` - but nothing uses them
-   yet: `update()` (esc line ~274, mercy ~279, finish ~324) and `draw_hud`
-   timer (~763) still read the `MATCH_SECONDS` constant; powerup cadence
-   (`next_pu = 6.0` init, `uniform(8,12)` respawn) not yet scaled by `_pace`.
-   Default 60s must stay bit-identical (pace=1.0). Then add timestamps:
-   `self.event_log` ({t, type, value} for x2/x4/burst/charge/impact/powerups),
-   `self.lead_change_times` (track live sign flips at the 0.5s sampler),
-   `biggest_hit["t"]` (set at release for burst; at shot impact for charge -
-   match on power in `_update_shots`).
-2. **seed_shop.py (new).** Run `Game` headless N seeds per theme (no draw, no
-   ffmpeg). Score: lead_changes*3 + max_swing*0.6 + closeness bonus +
-   log2(biggest_power) bonus (+extra for 256) + early-action bonus (first
-   lead change < 10s). Floor: reject lead_changes < 3 or biggest < 32. Write
-   best seed per theme to `output/seed_shop.json`, print ranked table.
-3. **render.py - OUTRO_SECONDS 4 -> 2.** One line.
-4. **render.py - pass `match_seconds` through** to `Game`; `max_frames` uses
-   `game.match_seconds`. Sidecar gains match_seconds, biggest_hit_t,
-   lead_change_times, cold_open.
-5. **batch_render.py - rework:** consume seed_shop best seeds instead of
-   `seed=None` rolls; args for themes/seed-count/length; renders a stockpile.
-6. **describe.py (new).** Title + description + hashtags generated from the
-   sidecar (photo finish / comeback / blowout / 256-moment templates,
-   "pick your side" CTA). Write `<name>.txt` next to each MP4; call from
-   render.py after sidecar write.
-7. **render.py - cold open (fiddly, do last).** Probe run (same seed,
+1. [x] **match_seconds + event timestamps** - `update()`/`draw_hud`/powerup
+   cadence all use `self.match_seconds`/`self._pace`; 60s default verified
+   identical to explicit 60. `event_log` ({t,type,value}), `lead_change_times`,
+   `biggest_hit["t"]` (burst: at release; charge: at impact) all recorded.
+2. [x] **seed_shop.py** - headless scorer per the agreed formula + floor.
+   Sim is theme-independent, so seeds are scored once and the top distinct
+   seeds dealt out to themes -> `output/seed_shop.json`. ~0.4s/seed: 80 seeds
+   at 40s took 31s, 25/80 passed the floor, top seeds 9-10 lead changes.
+3. [x] **OUTRO_SECONDS 4 -> 2.**
+4. [x] **render.py passthrough** - `match_seconds` CLI arg; sidecar gains
+   match_seconds, biggest_hit_t, lead_change_times, timeline (full event log).
+5. [x] **batch_render.py rework** - consumes seed_shop.json (errors if
+   missing), renders assigned seed per theme at the shopped length; theme
+   names as args. Verified: rendered battle matches shopped metrics exactly.
+6. [x] **describe.py** - title (256-moment > photo finish > comeback >
+   blowout > default) + pinned comment + description + hashtags from the
+   sidecar; render.py writes `<name>.txt` beside every MP4.
+7. [ ] **render.py - cold open (fiddly, do last).** Probe run (same seed,
    sim-only) finds `biggest_hit["t"]`; second Game fast-forwards sim-only to
    t-0.35s, draws ~60 frames (1s) written BEFORE the battle frames; battle
    audio events offset by 1s; add "anticipation" riser cue at t=0. Skip if
    biggest hit < 32. Determinism makes this safe (private game.rng).
+   NOTE: the opening title card (below) now occupies the first 1.0s -
+   integrate the cold open UNDER the card, or shorten the card.
 8. **Not code:** drop an NCS track in `music/` before rendering the slate
    (current batch is SFX-only); create channel; upload slate; pin comment;
    schedule 1/day; TikTok + Reels mirrors; after 20-30 uploads pull YT
    analytics and close the loop.
+
+### Also done 2026-07-18 (sim fixes + presentation, beyond the plan)
+
+- [x] **verify.py** - invariants + determinism + default-equivalence + 40s
+  check. Run after ANY sim change; seed shopping and re-renders depend on it.
+- [x] **Anticipation direction fix** - the slow-mo beat only arms when the
+  ball is moving TOWARD the red pad (was: distance only, so beats fired on
+  receding balls and paid off with nothing).
+- [x] **Burst cone aim** - burst pellets spray in a +/-70 degree cone toward
+  the enemy tile centroid (was: 360 spray wasted half a big burst on walls).
+- [x] **Top-tier payoff ladder** - SHOT_MAX_BLOB 6.5 -> 9.5 (256 is now
+  visually bigger than 133, was capped identical) and releases >= 128 chain
+  2 aftershock explosions (3 at 256) striking enemy pockets near the impact.
+- [x] **Lead-change beat** - live sign flip at the 0.5s sampler triggers a
+  white bar flash + gold "NEW LEADER!" + new `lead_flip` SFX cue. Lead
+  changes were the #1 drama metric yet had zero on-screen presence.
+- [x] **Opening title card (render only)** - first 1.0s shows a gold-bordered
+  "CATS 🐱 / VS / 🐶 DOGS" card (team colours + emoji, shrink-to-fit), fades
+  out over 0.3s. The swipe decision happens before the HUD means anything.
 
 ### Old Phase A.5 list (superseded by the build list above)
 - [ ] Eyeball a few full 60s runs on screen; tune anything that feels off
