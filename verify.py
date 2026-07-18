@@ -25,9 +25,9 @@ import main as sim
 CHECK_EVERY = 30  # frames between invariant sweeps
 
 
-def run(seed, match_seconds=None):
+def run(seed, match_seconds=None, genome=None):
     """Run one battle headless, asserting invariants; return a signature."""
-    game = sim.Game(seed, match_seconds=match_seconds)
+    game = sim.Game(seed, match_seconds=match_seconds, genome=genome)
     limit = sim.FPS * (game.match_seconds + 30)
     frames = 0
     while not game.finished:
@@ -79,6 +79,13 @@ def main():
             failures += 1
             diff = {key for key in a if a[key] != c[key]}
             print(f"FAIL seed {seed}: match_seconds=60 != default, differs in {diff}")
+            continue
+        d = run(seed, genome=dict(sim.GENOME))
+        if a != d:
+            failures += 1
+            diff = {key for key in a if a[key] != d[key]}
+            print(f"FAIL seed {seed}: explicit default genome != default, "
+                  f"differs in {diff}")
             continue
         print(f"ok seed {seed}: {a['final'][0]}-{a['final'][1]}, "
               f"{a['lead_changes']} lead changes, "

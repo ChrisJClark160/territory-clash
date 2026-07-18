@@ -66,20 +66,36 @@ BOOST_MULT = 1.6
 
 # Multiply or Release (Phase A - see DESIGN.md)
 PAD_RADIUS = 30
-N_GREEN_PADS = 3
-N_RED_PADS = 2
 VALUE_CAP = 256
 GREEN = (60, 230, 110)
 RED = (255, 80, 80)
 PELLET_SPEED = 14           # px per frame
 PELLETS_PER_FRAME = 6       # burst fire rate
-BURST_CONE = math.radians(70)  # spray half-angle, aimed at enemy territory
 SHOT_SPEED = 5              # charged shot px per frame
 SHOT_MAX_BLOB = 9.5         # cap blast radius in tiles (sqrt(256/pi)=9.03,
                             # so the full value ladder stays visible)
 AFTERSHOCK_VALUE = 128      # releases this big chain secondary explosions
 AFTERSHOCK_RADIUS = 4.0     # aftershock blast radius in tiles
 AFTERSHOCK_DELAY = 0.22     # seconds between chain explosions
+
+# Genome: the engagement levers an evolutionary tuner is allowed to move
+# (evolve.py). Defaults MUST reproduce the hand-tuned behaviour exactly -
+# verify.py asserts Game(seed) == Game(seed, genome=dict(GENOME)).
+# Every render's sidecar records the genome that produced it, so once real
+# YouTube retention data exists it can replace the offline drama score as
+# the fitness function.
+GENOME = {
+    "base_speed": BASE_SPEED,     # px/frame before multipliers
+    "escalation": 0.5,            # extra pace by the finale (fraction)
+    "rubber": 0.9,                # losing-side speed-up strength
+    "leader_brake": 0.3,          # leader slow-down strength
+    "no_mercy_s": 10.0,           # final seconds with the brake released
+    "pu_rate": 1.0,               # powerup cadence multiplier (higher=rarer)
+    "green_pads": 3,              # multiplier pads (one is always x4)
+    "red_pads": 2,                # release pads
+    "max_balls": MAX_BALLS_PER_TEAM,
+    "burst_cone_deg": 70,         # burst spray half-angle
+}
 
 # Red pad anticipation (Phase A.5 - see DESIGN.md): a beat that makes a big
 # ball closing on a red pad feel dangerous instead of just a bigger number.
@@ -173,8 +189,9 @@ class Pad:
 class Game:
     """Full simulation state, updatable headless (draw is separate)."""
 
-    def __init__(self, seed=None, theme=None, match_seconds=None):
+    def __init__(self, seed=None, theme=None, match_seconds=None, genome=None):
         t = theme or DEFAULT_THEME
+        self.genome = {**GENOME, **(genome or {})}
         self.match_seconds = match_seconds or MATCH_SECONDS
         # Absolute cadences (powerup spawns) scale with match length so a
         # short match is a compressed battle, not a diluted one.
@@ -204,11 +221,13 @@ class Game:
                  RIGHT, math.cos(a2), math.sin(a2)),
         ]
         self.powerups = []
-        self.next_pu = 6.0 * self._pace
-        # Always two x2 pads and one x4 - the big multiplier is a guaranteed
-        # part of every board, not a coin flip
-        self.pads = ([Pad(*self._pad_pos(), k) for k in (2, 2, 4)]
-                     + [Pad(*self._pad_pos(), "release") for _ in range(N_RED_PADS)])
+        self.next_pu = 6.0 * self._pace * self.genome["pu_rate"]
+        # One x4 is always guaranteed - the big multiplier is part of every
+        # board, not a coin flip; the rest of the green pads are x2.
+        green = [2] * (int(self.genome["green_pads"]) - 1) + [4]
+        self.pads = ([Pad(*self._pad_pos(), k) for k in green]
+                     + [Pad(*self._pad_pos(), "release")
+                        for _ in range(int(self.genome["red_pads"]))])
         self.pellets = []         # [x, y, dx, dy, team]
         self.shots = []           # charged shots: dicts
         self.burst_queue = []     # {"x","y","team","remaining","dir"}
@@ -284,26 +303,28 @@ class Game:
         left, right = self.count_tiles()
         total = COLS * ROWS
 
-        # Escalation: up to +50% pace by the end - finale is the wildest part
-        esc = 1.0 + 0.5 * min(self.elapsed / self.match_seconds, 1.0) ** 2
+        # Escalation: extra pace by the end - finale is the wildest part
+        g = self.genome
+        esc = 1.0 + g["escalation"] * min(self.elapsed / self.match_seconds, 1.0) ** 2
 
         # Rubber-band: losing side speeds up, leader slows - keeps the score
         # close and produces lead changes. The leader penalty fades out over
-        # the final 10s ("no mercy") so the ending breaks open decisively.
-        mercy = min(1.0, max(0.0, (self.match_seconds - self.elapsed) / 10.0))
+        # the final seconds ("no mercy") so the ending breaks open decisively.
+        mercy = min(1.0, max(0.0, (self.match_seconds - self.elapsed)
+                             / g["no_mercy_s"]))
         n_balls = {t: max(1, sum(1 for b in self.balls if b.team == t))
                    for t in (LEFT, RIGHT)}
         slowmo = ANTICIPATION_SLOWMO if self.anticipation else 1.0
         speed = {}
         for team, owned in ((LEFT, left), (RIGHT, right)):
             share = owned / total
-            rubber = (1.0 + 0.9 * max(0.0, 0.5 - share)
-                      - 0.3 * mercy * max(0.0, share - 0.5))
+            rubber = (1.0 + g["rubber"] * max(0.0, 0.5 - share)
+                      - g["leader_brake"] * mercy * max(0.0, share - 0.5))
             # Fewer balls -> each ball fights harder (damps multiply snowball)
             enemy = RIGHT if team == LEFT else LEFT
             equalizer = min(1.5, max(0.8, (n_balls[enemy] / n_balls[team]) ** 0.5))
             boost = BOOST_MULT if self.boost_t[team] > 0 else 1.0
-            speed[team] = BASE_SPEED * esc * rubber * equalizer * boost * slowmo
+            speed[team] = g["base_speed"] * esc * rubber * equalizer * boost * slowmo
 
         for ball in self.balls:
             if self.freeze_t[ball.team] <= 0:
@@ -493,7 +514,8 @@ class Game:
                 if q["dir"] is None:
                     a = self.rng.uniform(0, math.tau)
                 else:
-                    a = q["dir"] + self.rng.uniform(-BURST_CONE, BURST_CONE)
+                    cone = math.radians(self.genome["burst_cone_deg"])
+                    a = q["dir"] + self.rng.uniform(-cone, cone)
                 self.pellets.append(
                     [q["x"], q["y"], math.cos(a), math.sin(a), q["team"]])
             if q["remaining"] <= 0:
@@ -598,7 +620,8 @@ class Game:
             ))
             # Rarer than pre-Phase-A: pads are the main drama engine now.
             # Scaled by _pace so a 40s match is compressed, not diluted.
-            self.next_pu = self.rng.uniform(8.0, 12.0) * self._pace
+            self.next_pu = (self.rng.uniform(8.0, 12.0) * self._pace
+                            * self.genome["pu_rate"])
 
         for pu in self.powerups:
             pu.age += dt
@@ -621,7 +644,7 @@ class Game:
 
         if pu.kind == "multiply":
             have = sum(1 for b in self.balls if b.team == team)
-            for _ in range(min(2, MAX_BALLS_PER_TEAM - have)):
+            for _ in range(min(2, int(self.genome["max_balls"]) - have)):
                 a = self.rng.uniform(0, math.tau)
                 self.balls.append(Ball(pu.x, pu.y, team, math.cos(a), math.sin(a)))
         elif pu.kind == "bomb":

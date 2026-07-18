@@ -77,12 +77,14 @@ def _title_card(game):
     return card
 
 
-def render(seed=None, out_path=None, theme=None, match_seconds=None):
+def render(seed=None, out_path=None, theme=None, match_seconds=None,
+           genome=None):
     pygame.init()
     pygame.display.set_mode((1, 1))  # dummy driver; needed for convert/fonts
     sim._fonts.clear()  # cached fonts die when pygame.quit()s between renders
 
-    game = sim.Game(seed, theme=theme, match_seconds=match_seconds)
+    game = sim.Game(seed, theme=theme, match_seconds=match_seconds,
+                    genome=genome)
     if out_path is None:
         os.makedirs("output", exist_ok=True)
         out_path = os.path.join("output", f"battle_{game.seed}.mp4")
@@ -191,6 +193,7 @@ def render(seed=None, out_path=None, theme=None, match_seconds=None):
         "events": game.events,
         "powerups": game.collected,
         "timeline": game.event_log,
+        "genome": game.genome,
         "duration_s": frame // sim.FPS,
         "file": os.path.basename(out_path),
     }

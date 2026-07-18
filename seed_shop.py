@@ -17,8 +17,10 @@ Usage:
     python seed_shop.py               # 80 seeds, 60s matches
     python seed_shop.py 200           # more seeds = better battles
     python seed_shop.py 200 40        # shop for 40s battles
+    python seed_shop.py 200 40 output/best_genome.json   # evolved settings
 
-Writes output/seed_shop.json; batch_render.py consumes it.
+Writes output/seed_shop.json; batch_render.py consumes it. Seeds are only
+valid for the exact genome + match length they were shopped with.
 """
 
 import json
@@ -36,8 +38,8 @@ FLOOR_LEAD_CHANGES = 3
 FLOOR_BIGGEST = 32
 
 
-def simulate(seed, match_seconds):
-    game = sim.Game(seed, match_seconds=match_seconds)
+def simulate(seed, match_seconds, genome=None):
+    game = sim.Game(seed, match_seconds=match_seconds, genome=genome)
     while not game.finished:
         game.update(1 / sim.FPS)
     left, right = game.count_tiles()
@@ -54,14 +56,11 @@ def simulate(seed, match_seconds):
     }
 
 
-def score(stats):
-    """Drama score, or None if the battle fails the floor."""
-    if (stats["lead_changes"] < FLOOR_LEAD_CHANGES
-            or stats["biggest_power"] < FLOOR_BIGGEST):
-        return None
+def raw_score(stats):
+    """Drama score with no floor - evolve.py needs a smooth gradient."""
     closeness = max(0.0, 10.0 - abs(stats["final_score"][0]
                                     - stats["final_score"][1]) * 0.5)
-    big = math.log2(stats["biggest_power"])
+    big = math.log2(max(1, stats["biggest_power"]))
     if stats["biggest_power"] >= sim.VALUE_CAP:
         big += 4
     early = 3.0 if (stats["lead_change_times"]
@@ -70,9 +69,22 @@ def score(stats):
                  + closeness + big + early, 1)
 
 
+def score(stats):
+    """Drama score, or None if the battle fails the floor."""
+    if (stats["lead_changes"] < FLOOR_LEAD_CHANGES
+            or stats["biggest_power"] < FLOOR_BIGGEST):
+        return None
+    return raw_score(stats)
+
+
 def main():
     n_seeds = int(sys.argv[1]) if len(sys.argv) > 1 else 80
     match_seconds = int(sys.argv[2]) if len(sys.argv) > 2 else 60
+    genome = None
+    if len(sys.argv) > 3:
+        with open(sys.argv[3]) as f:
+            genome = json.load(f)
+        print(f"genome: {sys.argv[3]}")
     rng = random.Random(20260718)  # fixed meta-seed: rerun = same candidates
     seeds = rng.sample(range(1_000_000), n_seeds)
 
@@ -81,7 +93,7 @@ def main():
     ranked = []
     rejected = 0
     for k, seed in enumerate(seeds, 1):
-        stats = simulate(seed, match_seconds)
+        stats = simulate(seed, match_seconds, genome)
         s = score(stats)
         if s is None:
             rejected += 1
@@ -110,6 +122,7 @@ def main():
         "generated": date.today().isoformat(),
         "match_seconds": match_seconds,
         "n_seeds": n_seeds,
+        "genome": genome,   # null = hand-tuned defaults
         "themes": assignments,
         "ranked": ranked[:40],
     }

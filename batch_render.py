@@ -50,7 +50,8 @@ def main():
               f"biggest {pick['biggest_power']})")
         render(seed=pick["seed"],
                out_path=os.path.join(out_dir, f"{name}.mp4"),
-               theme=THEMES[name], match_seconds=seconds)
+               theme=THEMES[name], match_seconds=seconds,
+               genome=shop.get("genome"))
         print()
 
 

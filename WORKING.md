@@ -167,6 +167,28 @@ and make seed_shop optimise for what measurably retains.
   "CATS 🐱 / VS / 🐶 DOGS" card (team colours + emoji, shrink-to-fit), fades
   out over 0.3s. The swipe decision happens before the HUD means anything.
 
+### Evolution layer (Chris's idea, built 2026-07-18)
+
+Frame the sim settings as a genome and evolve them; fitness = what holds
+viewers. Two phases:
+
+- **Phase 1 (live now, offline):** `GENOME` in main.py exposes 10 engagement
+  levers (speeds, rubber-banding, escalation, pad counts, powerup cadence,
+  burst cone...). Defaults reproduce the hand-tuned sim EXACTLY (verify.py
+  asserts it). `evolve.py` runs a genetic loop - gaussian mutation, uniform
+  crossover, 2 elites - with fitness = mean drama score over a SHARED set of
+  battle seeds (common random numbers, so fitness differences are the
+  genome's doing, not seed luck). Output: `output/best_genome.json`, which
+  seed_shop.py takes as an optional 3rd arg and batch_render passes through
+  to every render.
+- **Phase 2 (after 20-30 uploads):** every sidecar records its genome, so
+  real audience data can replace the surrogate: fitness = mean avg-percent-
+  viewed per genome from YT analytics (retention, NOT raw views - views are
+  confounded by theme/title/thumbnail and algorithm mood). At 1 upload/day a
+  generation takes a week+, so mutate ONE gene at a time from the phase-1
+  winner and keep themes balanced across variants. Close the loop the plan
+  already called for, just with the machinery ready.
+
 ### Old Phase A.5 list (superseded by the build list above)
 - [ ] Eyeball a few full 60s runs on screen; tune anything that feels off
       (pad cadence, blob size, pellet spray, trail length)
