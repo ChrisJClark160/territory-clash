@@ -73,8 +73,13 @@ GREEN = (60, 230, 110)
 RED = (255, 80, 80)
 PELLET_SPEED = 14           # px per frame
 PELLETS_PER_FRAME = 6       # burst fire rate
+BURST_CONE = math.radians(70)  # spray half-angle, aimed at enemy territory
 SHOT_SPEED = 5              # charged shot px per frame
-SHOT_MAX_BLOB = 6.5         # cap blast radius in tiles
+SHOT_MAX_BLOB = 9.5         # cap blast radius in tiles (sqrt(256/pi)=9.03,
+                            # so the full value ladder stays visible)
+AFTERSHOCK_VALUE = 128      # releases this big chain secondary explosions
+AFTERSHOCK_RADIUS = 4.0     # aftershock blast radius in tiles
+AFTERSHOCK_DELAY = 0.22     # seconds between chain explosions
 
 # Red pad anticipation (Phase A.5 - see DESIGN.md): a beat that makes a big
 # ball closing on a red pad feel dangerous instead of just a bigger number.
@@ -199,14 +204,15 @@ class Game:
                  RIGHT, math.cos(a2), math.sin(a2)),
         ]
         self.powerups = []
-        self.next_pu = 6.0
+        self.next_pu = 6.0 * self._pace
         # Always two x2 pads and one x4 - the big multiplier is a guaranteed
         # part of every board, not a coin flip
         self.pads = ([Pad(*self._pad_pos(), k) for k in (2, 2, 4)]
                      + [Pad(*self._pad_pos(), "release") for _ in range(N_RED_PADS)])
         self.pellets = []         # [x, y, dx, dy, team]
         self.shots = []           # charged shots: dicts
-        self.burst_queue = []     # {"x","y","team","remaining"}
+        self.burst_queue = []     # {"x","y","team","remaining","dir"}
+        self.aftershocks = []     # chained explosions: {"t","x","y","team","power"}
         self.particles = []       # [x, y, vx, vy, life, colour, size]
         self.flash = {}           # (i, j) -> brightness 0..1, decays
         self.freeze_t = {LEFT: 0.0, RIGHT: 0.0}
@@ -222,9 +228,13 @@ class Game:
         self.lead_signs = []
         self.pct_history = []
         self._lead_timer = 0.0
+        self._last_sign = 0
         self.lead_changes = 0
+        self.lead_change_times = []   # seconds, at the 0.5s sampler
+        self.lead_flash_t = 0.0       # "NEW LEADER" bar flash countdown
         self.max_swing = 0
-        self.biggest_hit = {"value": 0, "type": None}
+        self.biggest_hit = {"value": 0, "type": None, "t": None}
+        self.event_log = []           # {"t","type","value"} for the sidecar
         # Red pad anticipation beat state (Phase A.5)
         self.anticipation = None       # {"value","team","x","y","t"} or None
         self.anticipation_cooldown = 0.0
@@ -275,12 +285,12 @@ class Game:
         total = COLS * ROWS
 
         # Escalation: up to +50% pace by the end - finale is the wildest part
-        esc = 1.0 + 0.5 * min(self.elapsed / MATCH_SECONDS, 1.0) ** 2
+        esc = 1.0 + 0.5 * min(self.elapsed / self.match_seconds, 1.0) ** 2
 
         # Rubber-band: losing side speeds up, leader slows - keeps the score
         # close and produces lead changes. The leader penalty fades out over
         # the final 10s ("no mercy") so the ending breaks open decisively.
-        mercy = min(1.0, max(0.0, (MATCH_SECONDS - self.elapsed) / 10.0))
+        mercy = min(1.0, max(0.0, (self.match_seconds - self.elapsed) / 10.0))
         n_balls = {t: max(1, sum(1 for b in self.balls if b.team == t))
                    for t in (LEFT, RIGHT)}
         slowmo = ANTICIPATION_SLOWMO if self.anticipation else 1.0
@@ -304,12 +314,14 @@ class Game:
         self._update_bursts()
         self._update_pellets()
         self._update_shots()
+        self._update_aftershocks(dt)
         self._update_powerups(dt, esc)
 
         for team in (LEFT, RIGHT):
             self.freeze_t[team] = max(0.0, self.freeze_t[team] - dt)
             self.boost_t[team] = max(0.0, self.boost_t[team] - dt)
         self.shake_t = max(0.0, self.shake_t - dt * 3)
+        self.lead_flash_t = max(0.0, self.lead_flash_t - dt)
         for key in list(self.flash):
             self.flash[key] -= dt * 2.5
             if self.flash[key] <= 0:
@@ -323,9 +335,19 @@ class Game:
         if self._lead_timer >= 0.5:
             self._lead_timer = 0.0
             self.pct_history.append(round(100 * left / total))
-            self.lead_signs.append(0 if left == right else (1 if left > right else -1))
+            sign = 0 if left == right else (1 if left > right else -1)
+            self.lead_signs.append(sign)
+            # Live lead-change beat: lead changes are the #1 drama metric,
+            # so each one gets a felt moment (bar flash + cue), not just a
+            # line on the winner screen.
+            if sign != 0:
+                if self._last_sign and sign != self._last_sign:
+                    self.lead_change_times.append(round(self.elapsed, 1))
+                    self.lead_flash_t = 0.9
+                    self.sound_events.append("lead_flip")
+                self._last_sign = sign
 
-        if self.elapsed >= MATCH_SECONDS or left == 0 or right == 0:
+        if self.elapsed >= self.match_seconds or left == 0 or right == 0:
             self.finished = True
             self.winner = LEFT if left > right else RIGHT if right > left else None
             self._compute_drama_stats()
@@ -342,7 +364,13 @@ class Game:
             for pad in self.pads:
                 if pad.kind != "release":
                     continue
-                if math.hypot(ball.x - pad.x, ball.y - pad.y) <= ANTICIPATION_RADIUS:
+                # Must be close AND closing in - a beat on a ball drifting
+                # away is an anticlimax that teaches viewers to ignore it.
+                approaching = ((pad.x - ball.x) * ball.dx
+                               + (pad.y - ball.y) * ball.dy) > 0
+                if (approaching
+                        and math.hypot(ball.x - pad.x, ball.y - pad.y)
+                        <= ANTICIPATION_RADIUS):
                     self.anticipation = {
                         "value": ball.value, "team": ball.team,
                         "x": pad.x, "y": pad.y, "t": ANTICIPATION_SECONDS,
@@ -387,6 +415,9 @@ class Game:
                 else:
                     ball.value = min(VALUE_CAP, ball.value * pad.kind)
                     self.events[f"x{pad.kind}"] += 1
+                    self.event_log.append({"t": round(self.elapsed, 2),
+                                           "type": f"x{pad.kind}",
+                                           "value": ball.value})
                     self._burst(pad.x, pad.y, GREEN, n=14, speed=220)
                     self.sound_events.append("pad_green")
                 pad.x, pad.y = self._pad_pos()  # relocate after any trigger
@@ -399,19 +430,29 @@ class Game:
         team = ball.team
         self._burst(pad.x, pad.y, RED, n=26, speed=320)
         self.sound_events.append("pad_red")
-        if value > self.biggest_hit["value"]:
-            self.biggest_hit = {"value": value, "type": None}  # type set below
-        if self.rng.random() < 0.5:
-            self.events["burst"] += 1
-            if value >= self.biggest_hit["value"]:
-                self.biggest_hit = {"value": value, "type": "burst"}
+        kind = "burst" if self.rng.random() < 0.5 else "charge"
+        self.events[kind] += 1
+        self.event_log.append({"t": round(self.elapsed, 2),
+                               "type": kind, "value": value})
+        if value >= self.biggest_hit["value"]:
+            # Burst pays off at release; a charge pays off at impact, so its
+            # timestamp is stamped in _update_shots (cold opens want the
+            # visual moment, not the trigger).
+            self.biggest_hit = {"value": value, "type": kind,
+                                "t": round(self.elapsed, 2) if kind == "burst"
+                                else None}
+        if kind == "burst":
+            # Spray in a cone toward enemy ground: a 360-degree spray from a
+            # pad deep in friendly territory wastes half its pellets on walls,
+            # making a "256 burst" look like nothing happened.
+            centroid = self._enemy_centroid(team)
+            direction = (math.atan2(centroid[1] - pad.y, centroid[0] - pad.x)
+                         if centroid else None)
             self.burst_queue.append(
-                {"x": pad.x, "y": pad.y, "team": team, "remaining": value})
+                {"x": pad.x, "y": pad.y, "team": team, "remaining": value,
+                 "dir": direction})
             self.sound_events.append("burst")
         else:
-            self.events["charge"] += 1
-            if value >= self.biggest_hit["value"]:
-                self.biggest_hit = {"value": value, "type": "charge"}
             target = self._random_enemy_tile(team)
             a = (math.atan2(target[1] - pad.y, target[0] - pad.x)
                  if target else self.rng.uniform(0, math.tau))
@@ -421,6 +462,19 @@ class Game:
                 "team": team, "power": value,
             })
             self.sound_events.append("charge")
+
+    def _enemy_centroid(self, team):
+        enemy = RIGHT if team == LEFT else LEFT
+        sx = sy = n = 0
+        for j in range(ROWS):
+            for i in range(COLS):
+                if self.grid[j][i] == enemy:
+                    sx += i
+                    sy += j
+                    n += 1
+        if not n:
+            return None
+        return (sx / n * TILE + TILE / 2, sy / n * TILE + TILE / 2)
 
     def _random_enemy_tile(self, team):
         enemy = RIGHT if team == LEFT else LEFT
@@ -436,7 +490,10 @@ class Game:
             n = min(PELLETS_PER_FRAME, q["remaining"])
             q["remaining"] -= n
             for _ in range(n):
-                a = self.rng.uniform(0, math.tau)
+                if q["dir"] is None:
+                    a = self.rng.uniform(0, math.tau)
+                else:
+                    a = q["dir"] + self.rng.uniform(-BURST_CONE, BURST_CONE)
                 self.pellets.append(
                     [q["x"], q["y"], math.cos(a), math.sin(a), q["team"]])
             if q["remaining"] <= 0:
@@ -477,7 +534,56 @@ class Game:
             self.shake_t = min(1.0, 0.4 + s["power"] / 400)
             self._burst(s["x"], s["y"], self.tile_color[s["team"]], n=36, speed=380)
             self.sound_events.append("explosion")
+            self.event_log.append({"t": round(self.elapsed, 2),
+                                   "type": "impact", "value": s["power"]})
+            if (s["power"] == self.biggest_hit["value"]
+                    and self.biggest_hit["type"] == "charge"
+                    and self.biggest_hit["t"] is None):
+                self.biggest_hit["t"] = round(self.elapsed, 2)
+            # Top-tier payoff ladder: 128+ chains secondary explosions so the
+            # rarest releases feel bigger, not just a capped blob.
+            if s["power"] >= AFTERSHOCK_VALUE:
+                n_extra = 2 + (s["power"] >= VALUE_CAP)
+                for k in range(n_extra):
+                    self.aftershocks.append({
+                        "t": AFTERSHOCK_DELAY * (k + 1),
+                        "x": s["x"], "y": s["y"],
+                        "team": s["team"], "power": s["power"],
+                    })
             self.shots.remove(s)
+
+    def _update_aftershocks(self, dt):
+        for a in self.aftershocks[:]:
+            a["t"] -= dt
+            if a["t"] > 0:
+                continue
+            self.aftershocks.remove(a)
+            enemy = RIGHT if a["team"] == LEFT else LEFT
+            ci, cj = int(a["x"] // TILE), int(a["y"] // TILE)
+            # Strike a random enemy pocket near the original impact so the
+            # chain visibly spreads instead of re-hitting cleared ground.
+            near = [(i, j) for j in range(max(0, cj - 8), min(ROWS, cj + 9))
+                    for i in range(max(0, ci - 8), min(COLS, ci + 9))
+                    if self.grid[j][i] == enemy]
+            if not near:
+                target = self._random_enemy_tile(a["team"])
+                if target is None:
+                    continue
+                ti, tj = int(target[0] // TILE), int(target[1] // TILE)
+            else:
+                ti, tj = self.rng.choice(near)
+            r = AFTERSHOCK_RADIUS
+            for jj in range(max(0, int(tj - r)), min(ROWS, int(tj + r + 1))):
+                for ii in range(max(0, int(ti - r)), min(COLS, int(ti + r + 1))):
+                    if (math.hypot(ii - ti, jj - tj) <= r
+                            and self.grid[jj][ii] == enemy):
+                        self.flip_tile(ii, jj, a["team"])
+            x, y = ti * TILE + TILE / 2, tj * TILE + TILE / 2
+            self.shake_t = min(1.0, self.shake_t + 0.35)
+            self._burst(x, y, self.tile_color[a["team"]], n=24, speed=320)
+            self.sound_events.append("explosion")
+            self.event_log.append({"t": round(self.elapsed, 2),
+                                   "type": "aftershock", "value": a["power"]})
 
     # -- powerups -------------------------------------------------------------
 
@@ -490,8 +596,9 @@ class Game:
                 self.rng.uniform(margin + 80, HEIGHT - margin),
                 self.rng.choices(PU_TYPES, PU_WEIGHTS)[0],
             ))
-            # Rarer than pre-Phase-A: pads are the main drama engine now
-            self.next_pu = self.rng.uniform(8.0, 12.0)
+            # Rarer than pre-Phase-A: pads are the main drama engine now.
+            # Scaled by _pace so a 40s match is compressed, not diluted.
+            self.next_pu = self.rng.uniform(8.0, 12.0) * self._pace
 
         for pu in self.powerups:
             pu.age += dt
@@ -504,6 +611,8 @@ class Game:
 
     def _apply_powerup(self, pu, team):
         self.collected[pu.kind] += 1
+        self.event_log.append({"t": round(self.elapsed, 2),
+                               "type": pu.kind, "value": None})
         self._burst(pu.x, pu.y, GOLD, n=24, speed=260)
         self.sound_events.append(
             "explosion" if pu.kind == "bomb"
@@ -764,10 +873,21 @@ def draw_hud(screen, game, font, big_font):
     rbl = big_font.render(f"{100 - left_pct}%", True, WHITE)
     screen.blit(rbl, (x0 + bar_w - rbl.get_width() - 8, y0 + bar_h + 6))
 
-    remaining = max(0, MATCH_SECONDS - game.elapsed)
+    remaining = max(0, game.match_seconds - game.elapsed)
     colour = GOLD if remaining <= 10 else (230, 230, 230)
     timer = font.render(f"{remaining:0.0f}", True, colour)
     screen.blit(timer, (WIDTH / 2 - timer.get_width() / 2, y0 + bar_h + 8))
+
+    # Lead-change beat: the bar flashes and announces the takeover while
+    # the flip is happening, not just as a stat on the winner screen.
+    if game.lead_flash_t > 0 and not game.finished:
+        frac = game.lead_flash_t / 0.9
+        pygame.draw.rect(screen, WHITE, (x0 - 3, y0 - 3, bar_w + 6, bar_h + 6),
+                         max(2, int(5 * frac)), border_radius=18)
+        w_surf = _font(30).render("NEW LEADER!", True, GOLD)
+        b_surf = _font(30).render("NEW LEADER!", True, (10, 10, 16))
+        _outlined(screen, w_surf, b_surf,
+                  WIDTH / 2 - w_surf.get_width() / 2, y0 + bar_h + 64)
 
     # Anticipation beat: "128 POWER!" flash in the team's colour
     if game.anticipation:

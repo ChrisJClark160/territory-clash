@@ -21,7 +21,7 @@ SR = 44100
 SFX_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "sfx")
 
 CUES = ("pad_green", "pad_red", "burst", "charge", "explosion",
-        "anticipation", "winner", "powerup", "freeze")
+        "anticipation", "winner", "powerup", "freeze", "lead_flip")
 
 
 # -- synthesis ---------------------------------------------------------------
@@ -99,6 +99,8 @@ def _build_cue(name):
         return _concat(_tone(880, 0.06, 0.3), _tone(1175, 0.09, 0.3))
     if name == "freeze":
         return _sweep(1400, 500, 0.35, 0.35, decay=2.0)
+    if name == "lead_flip":
+        return _concat(_tone(700, 0.07, 0.4), _tone(1050, 0.13, 0.4))
     raise ValueError(name)
 
 
