@@ -2,8 +2,27 @@
 
 Living status + task doc. Update at the end of each working session.
 
-Last updated: 2026-07-18 (launch-plan build items 1-6 DONE + sim fixes +
-lead-change beat + title card. Remaining: cold open, music track, channel.)
+Last updated: 2026-07-19 (ALL build items 1-8 done incl cold open + music.
+CHANNEL IS LIVE: "Territory Clash", first video published 18 Jul -
+https://youtube.com/shorts/pzDv2X2btuc - pinned-comment + upload text
+flow proven end to end.)
+
+**Launch state:**
+- Channel "Territory Clash" live; handle still @meizthebomb123 - Chris to
+  change to @TerritoryClash (Studio > Customisation) and complete the
+  one-time "advanced features" (phone) verification to unlock comment
+  pinning. Community comment posted, awaiting pin.
+- Video 1 public (cats_vs_dogs, evolved genome, 42s, music bed).
+- 9 more first-slate videos rendered in output/batch/<theme>.mp4 awaiting
+  upload (Chris multi-selects in Studio; metadata comes from the .txt
+  files; schedule 1/day ~17:00).
+- Stockpile machinery live: 25 themes x >=5 shopped seeds each
+  (output/seed_shop.json, evolved genome, 40s). batch_render renders
+  waves with --count N; wave 1 (25 videos, no cold open) rendering
+  2026-07-19; later waves include the cold open - deliberate A/B
+  material for retention comparison.
+- Music: Raving Energy (Kevin MacLeod, CC BY 4.0) in music/; credit line
+  auto-written from the filename into every video description.
 
 **⚠️ Sim changed 2026-07-18: old seeds produce DIFFERENT battles now** (burst
 cone aim, aftershocks, anticipation direction check changed rng consumption).
@@ -136,17 +155,15 @@ and make seed_shop optimise for what measurably retains.
 6. [x] **describe.py** - title (256-moment > photo finish > comeback >
    blowout > default) + pinned comment + description + hashtags from the
    sidecar; render.py writes `<name>.txt` beside every MP4.
-7. [ ] **render.py - cold open (fiddly, do last).** Probe run (same seed,
-   sim-only) finds `biggest_hit["t"]`; second Game fast-forwards sim-only to
-   t-0.35s, draws ~60 frames (1s) written BEFORE the battle frames; battle
-   audio events offset by 1s; add "anticipation" riser cue at t=0. Skip if
-   biggest hit < 32. Determinism makes this safe (private game.rng).
-   NOTE: the opening title card (below) now occupies the first 1.0s -
-   integrate the cold open UNDER the card, or shorten the card.
-8. **Not code:** drop an NCS track in `music/` before rendering the slate
-   (current batch is SFX-only); create channel; upload slate; pin comment;
-   schedule 1/day; TikTok + Reels mirrors; after 20-30 uploads pull YT
-   analytics and close the loop.
+7. [x] **Cold open (2026-07-19).** Probe replay finds the biggest hit; a
+   second Game fast-forwards to t-0.35s and one second of the hit renders
+   UNDER the fading title card, then the battle starts from zero. Riser at
+   t=0, battle audio auto-offset, skipped when biggest hit < 32, sidecar
+   records `cold_open`.
+8. [x] Music track in `music/` (Raving Energy, CC BY 4.0). Channel created,
+   video 1 published + comment posted. **Still to do:** upload the other 9,
+   schedule 1/day, TikTok + Reels mirrors, pull YT analytics after 20-30
+   uploads and close the loop (feed retention into evolve.py fitness).
 
 ### Also done 2026-07-18 (sim fixes + presentation, beyond the plan)
 
