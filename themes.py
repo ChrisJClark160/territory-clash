@@ -66,4 +66,79 @@ THEMES = {
         "colors": {LEFT: (225, 30, 35), RIGHT: (255, 199, 44)},
         "emoji": ("\U0001F357", "\U0001F35F"),          # drumstick, fries
     },
+    "fortnite_vs_minecraft": {
+        "names": ("FORTNITE", "MINECRAFT"),
+        "colors": {LEFT: (150, 80, 255), RIGHT: (95, 200, 70)},
+        "emoji": ("\U0001FA82", "⛏"),              # parachute, pickaxe
+    },
+    "zombies_vs_humans": {
+        "names": ("ZOMBIES", "HUMANS"),
+        "colors": {LEFT: (110, 200, 60), RIGHT: (255, 150, 60)},
+        "emoji": ("\U0001F9DF", "\U0001F9D1"),          # zombie, person
+    },
+    "pirates_vs_ninjas": {
+        "names": ("PIRATES", "NINJAS"),
+        "colors": {LEFT: (200, 60, 50), RIGHT: (130, 90, 220)},
+        "emoji": ("☠", "\U0001F977"),              # skull+bones, ninja
+    },
+    "dragons_vs_unicorns": {
+        "names": ("DRAGONS", "UNICORNS"),
+        "colors": {LEFT: (255, 90, 30), RIGHT: (255, 120, 200)},
+        "emoji": ("\U0001F409", "\U0001F984"),          # dragon, unicorn
+    },
+    "aliens_vs_robots": {
+        "names": ("ALIENS", "ROBOTS"),
+        "colors": {LEFT: (90, 230, 120), RIGHT: (130, 160, 220)},
+        "emoji": ("\U0001F47D", "\U0001F916"),          # alien, robot
+    },
+    "sharks_vs_lions": {
+        "names": ("SHARKS", "LIONS"),
+        "colors": {LEFT: (60, 140, 255), RIGHT: (240, 180, 50)},
+        "emoji": ("\U0001F988", "\U0001F981"),          # shark, lion
+    },
+    "tiktok_vs_youtube": {
+        "names": ("TIKTOK", "YOUTUBE"),
+        "colors": {LEFT: (60, 220, 230), RIGHT: (255, 50, 50)},
+        "emoji": ("\U0001F3B5", "\U0001F4FA"),          # music note, TV
+    },
+    "summer_vs_winter": {
+        "names": ("SUMMER", "WINTER"),
+        "colors": {LEFT: (255, 170, 40), RIGHT: (120, 200, 255)},
+        "emoji": ("☀", "⛄"),                  # sun, snowman
+    },
+    "day_vs_night": {
+        "names": ("DAY", "NIGHT"),
+        "colors": {LEFT: (255, 210, 70), RIGHT: (110, 80, 220)},
+        "emoji": ("\U0001F31E", "\U0001F319"),          # sun face, moon
+    },
+    "tea_vs_coffee": {
+        "names": ("TEA", "COFFEE"),
+        "colors": {LEFT: (120, 200, 90), RIGHT: (200, 140, 80)},
+        "emoji": ("\U0001F375", "☕"),              # teacup, coffee
+    },
+    "messi_vs_ronaldo": {
+        "names": ("MESSI", "RONALDO"),
+        "colors": {LEFT: (120, 190, 255), RIGHT: (230, 40, 60)},
+        "emoji": ("\U0001F410", "\U0001F451"),          # goat, crown
+    },
+    "trex_vs_megalodon": {
+        "names": ("T-REX", "MEGALODON"),
+        "colors": {LEFT: (140, 200, 60), RIGHT: (70, 130, 230)},
+        "emoji": ("\U0001F996", "\U0001F988"),          # t-rex, shark
+    },
+    "chocolate_vs_vanilla": {
+        "names": ("CHOCOLATE", "VANILLA"),
+        "colors": {LEFT: (180, 120, 70), RIGHT: (250, 235, 180)},
+        "emoji": ("\U0001F36B", "\U0001F366"),          # chocolate, ice cream
+    },
+    "football_vs_basketball": {
+        "names": ("FOOTBALL", "BASKETBALL"),
+        "colors": {LEFT: (80, 200, 90), RIGHT: (255, 140, 40)},
+        "emoji": ("⚽", "\U0001F3C0"),              # football, basketball
+    },
+    "coke_vs_pepsi": {
+        "names": ("COKE", "PEPSI"),
+        "colors": {LEFT: (228, 26, 28), RIGHT: (0, 90, 200)},
+        "emoji": ("\U0001F964", "\U0001F9CA"),          # cup with straw, ice
+    },
 }

@@ -115,9 +115,13 @@ def main():
               f"{r['max_swing']:>5} {r['biggest_power']:>4} "
               f"{r['final_score'][0]:>3}-{r['final_score'][1]:<3} {first:>6}")
 
+    # Deal the ranked seeds round-robin so every theme gets a LIST of
+    # battles of comparable quality - the stockpile is themes x battles.
     themes = [n for n in THEMES if n != "classic"]
-    assignments = {name: ranked[i] for i, name in enumerate(themes)
-                   if i < len(ranked)}
+    assignments = {name: [] for name in themes}
+    for i, stats in enumerate(ranked):
+        assignments[themes[i % len(themes)]].append(stats)
+    per_theme = min(len(v) for v in assignments.values()) if ranked else 0
     out = {
         "generated": date.today().isoformat(),
         "match_seconds": match_seconds,
@@ -130,10 +134,10 @@ def main():
     path = os.path.join("output", "seed_shop.json")
     with open(path, "w") as f:
         json.dump(out, f, indent=2)
-    print(f"\nassigned top {len(assignments)} seeds to themes -> {path}")
-    if len(assignments) < len(themes):
-        print(f"WARNING: only {len(assignments)} bangers for "
-              f"{len(themes)} themes - run with more seeds")
+    print(f"\nassigned {len(ranked)} seeds across {len(themes)} themes "
+          f"(>= {per_theme} each) -> {path}")
+    if per_theme == 0:
+        print("WARNING: some themes got no banger - run with more seeds")
 
 
 if __name__ == "__main__":
