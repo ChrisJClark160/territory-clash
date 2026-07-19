@@ -34,6 +34,11 @@ import main as sim
 
 OUTRO_SECONDS = 2   # winner banner + confetti; short - retention feeds loops
 TITLE_SECONDS = 1.0  # opening matchup card, fades out over the last 0.3s
+# Cold open: the first TITLE_SECONDS of video show the battle's biggest hit
+# (flash-forward) playing UNDER the title card, then the battle starts from
+# zero. Determinism makes the flash-forward an exact replay.
+COLD_OPEN_LEAD = 0.35   # seconds of run-up shown before the hit lands
+COLD_OPEN_MIN_HIT = 32  # skip the cold open for battles without a big hit
 MUSIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "music")
 MUSIC_VOLUME = 0.30  # music bed sits under the SFX
 
@@ -89,6 +94,21 @@ def render(seed=None, out_path=None, theme=None, match_seconds=None,
         os.makedirs("output", exist_ok=True)
         out_path = os.path.join("output", f"battle_{game.seed}.mp4")
 
+    # Cold-open probe: replay the battle headless to find the biggest hit,
+    # then fast-forward a second copy to just before it lands.
+    probe = sim.Game(game.seed, theme=theme, match_seconds=match_seconds,
+                     genome=genome)
+    while not probe.finished:
+        probe.update(1 / sim.FPS)
+    cold = None
+    if (probe.biggest_hit["t"] is not None
+            and probe.biggest_hit["value"] >= COLD_OPEN_MIN_HIT):
+        cold = sim.Game(game.seed, theme=theme, match_seconds=match_seconds,
+                        genome=genome)
+        target = max(0.0, probe.biggest_hit["t"] - COLD_OPEN_LEAD)
+        while cold.elapsed < target and not cold.finished:
+            cold.update(1 / sim.FPS)
+
     font = pygame.font.SysFont("arial", 26, bold=True)
     big_font = pygame.font.SysFont("arial", 44, bold=True)
     world = pygame.Surface((sim.WIDTH, sim.HEIGHT))
@@ -116,7 +136,27 @@ def render(seed=None, out_path=None, theme=None, match_seconds=None,
     title_card = _title_card(game)
     t0 = time.time()
     print(f"seed: {game.seed}")
-    print(f"rendering -> {out_path}")
+    print(f"rendering -> {out_path}"
+          + (" (cold open)" if cold else ""))
+
+    # Cold open frames: the biggest hit plays under the title card.
+    if cold:
+        audio_events.append((0.0, "anticipation"))
+        for _ in range(int(sim.FPS * TITLE_SECONDS)):
+            cold.update(1 / sim.FPS)
+            for cue in cold.sound_events:
+                audio_events.append((frame / sim.FPS, cue))
+            sim.draw_world(world, cold)
+            sim.compose_frame(world, canvas, cold)
+            sim.draw_hud(canvas, cold, font, big_font)
+            t = frame / sim.FPS
+            fade = 1.0 if t < TITLE_SECONDS - 0.3 else (TITLE_SECONDS - t) / 0.3
+            title_card.set_alpha(int(255 * fade))
+            canvas.blit(title_card,
+                        (0, (sim.HEIGHT - title_card.get_height()) / 2))
+            proc.stdin.write(pygame.image.tobytes(canvas, "RGB"))
+            frame += 1
+        max_frames += frame
 
     while outro < outro_frames and frame < max_frames:
         game.update(1 / sim.FPS)
@@ -194,6 +234,7 @@ def render(seed=None, out_path=None, theme=None, match_seconds=None,
         "powerups": game.collected,
         "timeline": game.event_log,
         "genome": game.genome,
+        "cold_open": bool(cold),
         "duration_s": frame // sim.FPS,
         "file": os.path.basename(out_path),
     }
